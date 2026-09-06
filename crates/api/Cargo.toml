@@ -26,6 +26,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 prometheus = { workspace = true }
 futures = { workspace = true }
+arrow = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

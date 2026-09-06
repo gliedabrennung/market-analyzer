@@ -1,15 +1,17 @@
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
-use axum::Json;
+use axum::http::HeaderMap;
+use axum::response::Response;
 use serde::Deserialize;
 
 use ma_analytics::{
     correlation_matrix, order_flow_imbalance, realized_volatility, volume_anomalies,
-    vwap as vwap_query, CorrelationPair, OfiBucket, VolatilityPoint, VolumeAnomaly, VwapPoint,
+    vwap as vwap_query,
 };
 use ma_core::Symbol;
 
+use crate::arrow_ipc::respond_rows;
 use crate::error::ApiError;
 use crate::state::AppState;
 use crate::validation;
@@ -27,7 +29,8 @@ pub async fn vwap(
     State(state): State<Arc<AppState>>,
     Path(symbol): Path<String>,
     Query(q): Query<WindowQuery>,
-) -> Result<Json<Vec<VwapPoint>>, ApiError> {
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
     let symbol = validation::validate_symbol(&state, &symbol).await?;
     let interval = validation::parse_interval(q.interval.as_deref())?;
     let window = validation::parse_window(q.window, 20)?;
@@ -46,7 +49,7 @@ pub async fn vwap(
             .map_err(ApiError::from)
         })
         .await?;
-    Ok(Json(validation::paginate(rows, limit, offset)))
+    respond_rows(&headers, validation::paginate(rows, limit, offset))
 }
 
 /// `GET /analytics/{symbol}/volatility` (FR-5.1, default window 20 per FR-3.3).
@@ -54,7 +57,8 @@ pub async fn volatility(
     State(state): State<Arc<AppState>>,
     Path(symbol): Path<String>,
     Query(q): Query<WindowQuery>,
-) -> Result<Json<Vec<VolatilityPoint>>, ApiError> {
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
     let symbol = validation::validate_symbol(&state, &symbol).await?;
     let interval = validation::parse_interval(q.interval.as_deref())?;
     let window = validation::parse_window(q.window, 20)?;
@@ -73,7 +77,7 @@ pub async fn volatility(
             .map_err(ApiError::from)
         })
         .await?;
-    Ok(Json(validation::paginate(rows, limit, offset)))
+    respond_rows(&headers, validation::paginate(rows, limit, offset))
 }
 
 #[derive(Debug, Deserialize)]
@@ -90,7 +94,8 @@ pub async fn anomalies(
     State(state): State<Arc<AppState>>,
     Path(symbol): Path<String>,
     Query(q): Query<AnomaliesQuery>,
-) -> Result<Json<Vec<VolumeAnomaly>>, ApiError> {
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
     let symbol = validation::validate_symbol(&state, &symbol).await?;
     let interval = validation::parse_interval(q.interval.as_deref())?;
     let window = validation::parse_window(q.window, 100)?;
@@ -111,7 +116,7 @@ pub async fn anomalies(
             .map_err(ApiError::from)
         })
         .await?;
-    Ok(Json(validation::paginate(rows, limit, offset)))
+    respond_rows(&headers, validation::paginate(rows, limit, offset))
 }
 
 #[derive(Debug, Deserialize)]
@@ -128,7 +133,8 @@ pub async fn ofi(
     State(state): State<Arc<AppState>>,
     Path(symbol): Path<String>,
     Query(q): Query<OfiQuery>,
-) -> Result<Json<Vec<OfiBucket>>, ApiError> {
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
     let symbol = validation::validate_symbol(&state, &symbol).await?;
     let bucket_seconds = validation::parse_bucket_seconds(q.bucket, 60)?;
     let (from, to) =
@@ -151,7 +157,7 @@ pub async fn ofi(
             .map_err(ApiError::from)
         })
         .await?;
-    Ok(Json(validation::paginate(rows, limit, offset)))
+    respond_rows(&headers, validation::paginate(rows, limit, offset))
 }
 
 #[derive(Debug, Deserialize)]
@@ -164,7 +170,8 @@ pub struct CorrelationQuery {
 pub async fn correlation(
     State(state): State<Arc<AppState>>,
     Query(q): Query<CorrelationQuery>,
-) -> Result<Json<Vec<CorrelationPair>>, ApiError> {
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
     let raw_symbols: Vec<&str> = q
         .symbols
         .split(',')
@@ -206,5 +213,5 @@ pub async fn correlation(
             .map_err(ApiError::from)
         })
         .await?;
-    Ok(Json(rows))
+    respond_rows(&headers, rows)
 }

@@ -27,7 +27,8 @@ pub async fn run(args: ServeArgs, config: &AppConfig) -> Result<()> {
         max_correlation_symbols: 10,
     };
 
-    let app = build_app(pool, exchange, limits).context("building API router")?;
+    let app = build_app(pool, exchange, limits, &config.api_cors_origin)
+        .context("building API router")?;
 
     let addr = format!("0.0.0.0:{}", args.port);
     let listener = tokio::net::TcpListener::bind(&addr)

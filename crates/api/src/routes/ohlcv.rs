@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
-use axum::Json;
+use axum::http::HeaderMap;
+use axum::response::Response;
 use serde::Deserialize;
 
+use crate::arrow_ipc::respond_rows;
 use crate::error::ApiError;
-use crate::queries::{fetch_ohlcv, OhlcvRow};
+use crate::queries::fetch_ohlcv;
 use crate::state::AppState;
 use crate::validation;
 
@@ -18,12 +20,14 @@ pub struct OhlcvQuery {
     pub offset: Option<i64>,
 }
 
-/// `GET /ohlcv/{symbol}` (FR-5.1).
+/// `GET /ohlcv/{symbol}` (FR-5.1). Arrow IPC or JSON per `Accept`
+/// (frontend-tz.md FR-1.1/FR-1.2).
 pub async fn ohlcv(
     State(state): State<Arc<AppState>>,
     Path(symbol): Path<String>,
     Query(q): Query<OhlcvQuery>,
-) -> Result<Json<Vec<OhlcvRow>>, ApiError> {
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
     let symbol = validation::validate_symbol(&state, &symbol).await?;
     let interval = validation::parse_interval(q.interval.as_deref())?;
     let (from, to) =
@@ -47,5 +51,5 @@ pub async fn ohlcv(
         })
         .await?;
 
-    Ok(Json(rows))
+    respond_rows(&headers, rows)
 }

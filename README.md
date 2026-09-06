@@ -66,6 +66,7 @@ market-analyzer compact --symbol BTCUSDT
 | `MA_REQUESTS_PER_SECOND` | `5` | лимит собственного rate limiter'а (FR-1.3) |
 | `MA_API_MAX_DATE_RANGE_DAYS` | `366` | максимальная ширина `from`/`to` в API (FR-5.3) |
 | `MA_API_DB_POOL_SIZE` | `4` | число read-only DuckDB-подключений у `serve` (FR-5.4) |
+| `MA_API_CORS_ORIGIN` | `http://localhost:5173` | разрешённый `Access-Control-Allow-Origin` для фронтенда (frontend-tz.md BE-2) |
 
 `--config`/`MA_DATA_DIR` и т.п. должны указывать на один и тот же каталог во
 всех командах одного проекта — иначе `backfill`/`stream` и `query`/`serve`
@@ -146,6 +147,12 @@ market-analyzer serve [--port 8080]
 | WS | `/stream/{symbol}` | проброс живых сделок |
 | GET | `/metrics` | Prometheus-метрики (FR-6.3) |
 
+`/ohlcv/*` и `/analytics/*` отдают Apache Arrow IPC stream при
+`Accept: application/vnd.apache.arrow.stream` (frontend-tz.md BE-1/FR-1.1);
+без этого заголовка — обычный JSON (FR-1.2). Decimal-поля (цены, объёмы) в
+Arrow-колонках — `Utf8`, не float (frontend-tz.md §2.3): точность не
+теряется при сериализации.
+
 `from`/`to` — `YYYY-MM-DD` или RFC3339. Ошибки — всегда
 `{"error":{"code","message","details"}}` (FR-5.2): `400` — невалидные
 параметры, `404` — неизвестный символ, `429` — превышен лимит, `500` —
@@ -200,6 +207,10 @@ crates/
   рамках разработки (см. `BENCHMARKS.md`) — 8-минутный прогон на 20 символах
   показал здоровый профиль (~105 МБ из бюджета 512 МБ), но это не то же
   самое, что 12 часов.
+- Контракт с фронтендом (`frontend-tz.md` §7) реализован частично: BE-1
+  (Arrow IPC) и BE-2 (CORS) готовы. BE-3 (кэш-заголовки), BE-5 (`type` в
+  WS-сообщениях), BE-6 (`price_precision`/`qty_precision` в `/symbols`) —
+  ещё нет, добавляются по мере необходимости фронтенду.
 - `vwap`, `volatility` и `anomalies` (CLI и HTTP) сканируют всю историю
   символа/интервала под своим скользящим окном — `from`/`to` для них не
   предусмотрены. Корректно ограничить диапазон без порчи статистики у

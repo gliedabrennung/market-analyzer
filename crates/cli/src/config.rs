@@ -19,6 +19,10 @@ pub struct AppConfig {
     /// (FR-5.4: queries run in `spawn_blocking`, never on the async
     /// executor thread).
     pub api_db_pool_size: usize,
+    /// CORS `Access-Control-Allow-Origin` for the API (frontend-tz.md BE-2).
+    /// Defaults to the Vite dev server; set to the deployed frontend origin
+    /// in production.
+    pub api_cors_origin: String,
 }
 
 impl Default for AppConfig {
@@ -30,6 +34,7 @@ impl Default for AppConfig {
             requests_per_second: 5,
             api_max_date_range_days: 366,
             api_db_pool_size: 4,
+            api_cors_origin: "http://localhost:5173".to_string(),
         }
     }
 }
@@ -69,6 +74,9 @@ impl AppConfig {
             cfg.api_db_pool_size = v
                 .parse()
                 .context("MA_API_DB_POOL_SIZE must be a positive integer")?;
+        }
+        if let Ok(v) = std::env::var("MA_API_CORS_ORIGIN") {
+            cfg.api_cors_origin = v;
         }
 
         Ok(cfg)

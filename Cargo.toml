@@ -44,8 +44,9 @@ csv = "1"
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 async-stream = "0.3"
 axum = { version = "0.7", features = ["ws"] }
-tower-http = { version = "0.5", features = ["trace"] }
+tower-http = { version = "0.5", features = ["trace", "cors"] }
 prometheus = "0.13"
+arrow = { version = "54", default-features = false, features = ["ipc"] }
 
 [profile.release]
 opt-level = 3

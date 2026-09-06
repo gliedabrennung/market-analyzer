@@ -39,7 +39,7 @@ async fn sustains_100_rps_on_ohlcv_without_growing_errors() {
         max_pagination_limit: 10_000,
         max_correlation_symbols: 10,
     };
-    let app = build_app(pool, exchange, limits).expect("building app");
+    let app = build_app(pool, exchange, limits, "http://localhost:5173").expect("building app");
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await

@@ -1,6 +1,9 @@
 //! HTTP API (FR-5.x): `axum` over a pooled read-only DuckDB connection
 //! (FR-5.4: all synchronous DuckDB work runs in `spawn_blocking`).
 
+/// Arrow IPC stream responses (frontend-tz.md BE-1) alongside the existing
+/// JSON ones — [`arrow_ipc::respond_rows`] picks the format from `Accept`.
+pub mod arrow_ipc;
 /// [`ApiError`]: the FR-5.2 JSON error envelope and its HTTP status mapping.
 pub mod error;
 /// [`metrics::Metrics`] (Prometheus registry) and the request-tracking middleware (FR-6.3).
@@ -19,8 +22,10 @@ pub mod validation;
 use std::sync::Arc;
 use std::time::Instant;
 
+use axum::http::HeaderValue;
 use axum::routing::get;
 use axum::Router;
+use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use ma_exchanges::binance::BinanceSpot;
@@ -30,12 +35,19 @@ pub use pool::DbPool;
 pub use state::{ApiLimits, AppState};
 
 /// Builds the full router. `serve` (the CLI command) owns binding a
-/// listener and running it with graceful shutdown.
+/// listener and running it with graceful shutdown. `cors_origin` is the
+/// single allowed `Access-Control-Allow-Origin` (frontend-tz.md BE-2) —
+/// the frontend is a single first-party client, so one configured origin
+/// rather than a wildcard or a dynamic allowlist.
 pub fn build_app(
     pool: DbPool,
     exchange: BinanceSpot,
     limits: ApiLimits,
+    cors_origin: &str,
 ) -> Result<Router, ApiError> {
+    let cors_origin: HeaderValue = cors_origin
+        .parse()
+        .map_err(|_| ApiError::Internal(format!("invalid CORS origin '{cors_origin}'")))?;
     let metrics = metrics::Metrics::new()
         .map_err(|e| ApiError::Internal(format!("initializing metrics: {e}")))?;
 
@@ -72,6 +84,12 @@ pub fn build_app(
             metrics::track_metrics,
         ))
         .layer(TraceLayer::new_for_http())
+        .layer(
+            CorsLayer::new()
+                .allow_origin(cors_origin)
+                .allow_methods([axum::http::Method::GET])
+                .allow_headers([axum::http::header::ACCEPT]),
+        )
         .with_state(state))
 }
 
