@@ -1,0 +1,33 @@
+[package]
+name = "ma-api"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lib]
+name = "ma_api"
+path = "src/lib.rs"
+
+[dependencies]
+ma-core = { workspace = true }
+ma-analytics = { workspace = true }
+ma-storage = { workspace = true }
+ma-exchanges = { workspace = true }
+axum = { workspace = true }
+tower-http = { workspace = true }
+tokio = { workspace = true }
+duckdb = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+rust_decimal = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+prometheus = { workspace = true }
+futures = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true, features = ["test-util", "rt", "macros"] }

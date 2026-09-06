@@ -1,0 +1,52 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/exchanges",
+    "crates/storage",
+    "crates/analytics",
+    "crates/api",
+    "crates/cli",
+]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.80"
+version = "0.1.0"
+license = "MIT"
+
+[workspace.dependencies]
+ma-core = { path = "crates/core" }
+ma-exchanges = { path = "crates/exchanges" }
+ma-storage = { path = "crates/storage" }
+ma-analytics = { path = "crates/analytics" }
+ma-api = { path = "crates/api" }
+
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal", "fs", "net"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "serde", "clock"] }
+rust_decimal = { version = "1", features = ["serde"] }
+thiserror = "2"
+anyhow = "1"
+async-trait = "0.1"
+futures = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+governor = "0.7"
+duckdb = { version = "1", features = ["bundled", "chrono"] }
+clap = { version = "4", features = ["derive", "env"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+toml = "0.8"
+tempfile = "3"
+comfy-table = "7"
+csv = "1"
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+async-stream = "0.3"
+axum = { version = "0.7", features = ["ws"] }
+tower-http = { version = "0.5", features = ["trace"] }
+prometheus = "0.13"
+
+[profile.release]
+opt-level = 3
+lto = true

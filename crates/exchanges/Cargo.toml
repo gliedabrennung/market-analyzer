@@ -1,0 +1,29 @@
+[package]
+name = "ma-exchanges"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lib]
+name = "ma_exchanges"
+path = "src/lib.rs"
+
+[dependencies]
+ma-core = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+rust_decimal = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+governor = { workspace = true }
+tracing = { workspace = true }
+tokio-tungstenite = { workspace = true }
+async-stream = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "rt"] }

@@ -1,0 +1,20 @@
+[package]
+name = "ma-analytics"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lib]
+name = "ma_analytics"
+path = "src/lib.rs"
+
+[dependencies]
+ma-core = { workspace = true }
+duckdb = { workspace = true }
+chrono = { workspace = true }
+rust_decimal = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]

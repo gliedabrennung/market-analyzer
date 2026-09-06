@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: build, fmt, clippy, test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # NFR-4.3: must build on Linux and macOS.
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # `duckdb`'s `bundled` feature compiles DuckDB from source on first
+      # build (10-20 min) — cache registry + target so PRs after the first
+      # one are fast (TZ §8 risk: "Долгая первая сборка... → Кэширование
+      # артефактов в CI").
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt --check (NFR-3.2)
+        run: cargo fmt --check
+
+      - name: cargo clippy -D warnings (NFR-3.1)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test (network-dependent tests are #[ignore]d, TZ §7)
+        run: cargo test --workspace
+
+      - name: Release build sanity
+        run: cargo build --release -p ma-cli
+
+  msrv-check:
+    name: MSRV sanity check (rust-version = 1.80)
+    runs-on: ubuntu-latest
+    # Best-effort, not gating: as of this writing, some transitive
+    # dependencies publish manifests requiring an `edition2024`-aware
+    # cargo (e.g. cpufeatures 0.3+) to even *parse*, independent of
+    # whether this project's own code uses any post-1.80 language
+    # feature. That's crates.io ecosystem drift, not a claim this
+    # project needs newer Rust syntax — see README.md / BENCHMARKS.md.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust 1.80
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.80"
+      - name: cargo check on the declared MSRV
+        run: cargo check --workspace
