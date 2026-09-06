@@ -193,6 +193,7 @@ crates/
   analytics/   # SQL-запросы (sql/*.sql + include_str!) и типизированные обёртки
   api/         # axum HTTP API поверх пула read-only DuckDB-подключений
   cli/         # market-analyzer: backfill/stream/query/compact/symbols/serve
+frontend/      # веб-дашборд (SolidJS+Vite+Arrow), ТЗ и статус — frontend/README.md
 ```
 
 ## Известные ограничения

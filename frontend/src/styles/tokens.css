@@ -1,0 +1,30 @@
+/* Design tokens (DR-2): every color/spacing/radius/font value the app uses
+ * lives here as a CSS custom property. Components reference `var(--*)` (or
+ * the Tailwind utilities `@theme` below generates from the same
+ * properties) — no hardcoded hex in component code.
+ *
+ * Dark is the default and only theme implemented so far (DR-1); a
+ * `[data-theme="light"]` override block is Этап 5 scope, built on these
+ * same property names.
+ */
+@theme {
+  --color-bg: #0b0e14;
+  --color-surface: #11151d;
+  --color-surface-2: #171c26;
+  --color-border: #262d3a;
+  --color-fg: #e6e9ef;
+  --color-fg-muted: #8b93a7;
+  --color-accent: #4f8cff;
+
+  /* DR-4: rise/fall are semantic tokens, never referenced as "green/red"
+   * in component code — so the colorblind-safe alt palette (Этап 5) is a
+   * token swap, not a find-and-replace. */
+  --color-up: #26a69a;
+  --color-down: #ef5350;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+}
