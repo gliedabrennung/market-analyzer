@@ -45,6 +45,36 @@ export interface SymbolInfoWire {
   qty_precision?: number
 }
 
+/** `GET /analytics/{symbol}/vwap` (FR-3.2). `vwap` is `null` for the
+ * leading bars of a window with no volume yet. */
+export interface VwapPoint {
+  openTime: number
+  close: number
+  vwap: number | null
+}
+
+/** `GET /analytics/{symbol}/volatility` (FR-3.3). `null` where fewer than
+ * 2 log returns exist in the window yet. */
+export interface VolatilityPoint {
+  openTime: number
+  realizedVolatility: number | null
+}
+
+/** `GET /analytics/{symbol}/anomalies` (FR-3.4): one detected volume spike. */
+export interface VolumeAnomaly {
+  openTime: number
+  volume: number
+  zScore: number
+}
+
+/** `GET /analytics/{symbol}/ofi` (FR-3.5): one Order Flow Imbalance bucket. */
+export interface OfiBucket {
+  bucket: number
+  buyVolume: number
+  sellVolume: number
+  ofi: number
+}
+
 export type Interval = '1m' | '5m' | '15m' | '1h' | '4h' | '1d'
 
 export const INTERVALS: readonly Interval[] = ['1m', '5m', '15m', '1h', '4h', '1d']

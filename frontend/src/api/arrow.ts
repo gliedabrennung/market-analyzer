@@ -1,5 +1,5 @@
 import { tableFromIPC, type Table } from 'apache-arrow'
-import type { OhlcvRow } from './types'
+import type { OfiBucket, OhlcvRow, VolatilityPoint, VolumeAnomaly, VwapPoint } from './types'
 
 /** Reads a named column off `table`, or throws — a missing column means the
  * backend's schema and this parser have drifted, which should fail loudly
@@ -10,6 +10,13 @@ function column(table: Table, name: string) {
     throw new Error(`Arrow response is missing expected column '${name}'`)
   }
   return col
+}
+
+/** A nullable `Utf8`-encoded decimal column (e.g. `vwap`, `null` on a
+ * zero-volume window) — `Number.parseFloat(null)` would silently give
+ * `NaN`, so `null` is passed through explicitly instead. */
+function nullableDecimal(value: unknown): number | null {
+  return value === null ? null : Number.parseFloat(value as string)
 }
 
 /** Parses an `/ohlcv/*` Arrow IPC stream response (frontend-tz.md FR-1.1).
@@ -46,6 +53,79 @@ export function parseOhlcvArrow(bytes: Uint8Array): OhlcvRow[] {
       quoteVolume: Number.parseFloat(quoteVolume.get(i) as string),
       tradesCount: Number(tradesCount.get(i)),
       isClosed: Boolean(isClosed.get(i)),
+    }
+  }
+  return rows
+}
+
+/** Parses a `/analytics/{symbol}/vwap` Arrow IPC stream (FR-3.2). */
+export function parseVwapArrow(bytes: Uint8Array): VwapPoint[] {
+  const table = tableFromIPC(bytes)
+  const openTime = column(table, 'open_time')
+  const close = column(table, 'close')
+  const vwap = column(table, 'vwap')
+
+  const rows: VwapPoint[] = new Array(table.numRows)
+  for (let i = 0; i < table.numRows; i++) {
+    rows[i] = {
+      openTime: Number(openTime.get(i)),
+      close: Number.parseFloat(close.get(i) as string),
+      vwap: nullableDecimal(vwap.get(i)),
+    }
+  }
+  return rows
+}
+
+/** Parses a `/analytics/{symbol}/volatility` Arrow IPC stream (FR-3.3). */
+export function parseVolatilityArrow(bytes: Uint8Array): VolatilityPoint[] {
+  const table = tableFromIPC(bytes)
+  const openTime = column(table, 'open_time')
+  const realizedVolatility = column(table, 'realized_volatility')
+
+  const rows: VolatilityPoint[] = new Array(table.numRows)
+  for (let i = 0; i < table.numRows; i++) {
+    const value = realizedVolatility.get(i)
+    rows[i] = {
+      openTime: Number(openTime.get(i)),
+      realizedVolatility: value === null ? null : Number(value),
+    }
+  }
+  return rows
+}
+
+/** Parses a `/analytics/{symbol}/anomalies` Arrow IPC stream (FR-3.4). */
+export function parseAnomaliesArrow(bytes: Uint8Array): VolumeAnomaly[] {
+  const table = tableFromIPC(bytes)
+  const openTime = column(table, 'open_time')
+  const volume = column(table, 'volume')
+  const zScore = column(table, 'z_score')
+
+  const rows: VolumeAnomaly[] = new Array(table.numRows)
+  for (let i = 0; i < table.numRows; i++) {
+    rows[i] = {
+      openTime: Number(openTime.get(i)),
+      volume: Number.parseFloat(volume.get(i) as string),
+      zScore: Number(zScore.get(i)),
+    }
+  }
+  return rows
+}
+
+/** Parses a `/analytics/{symbol}/ofi` Arrow IPC stream (FR-3.5). */
+export function parseOfiArrow(bytes: Uint8Array): OfiBucket[] {
+  const table = tableFromIPC(bytes)
+  const bucket = column(table, 'bucket')
+  const buyVolume = column(table, 'buy_volume')
+  const sellVolume = column(table, 'sell_volume')
+  const ofi = column(table, 'ofi')
+
+  const rows: OfiBucket[] = new Array(table.numRows)
+  for (let i = 0; i < table.numRows; i++) {
+    rows[i] = {
+      bucket: Number(bucket.get(i)),
+      buyVolume: Number.parseFloat(buyVolume.get(i) as string),
+      sellVolume: Number.parseFloat(sellVolume.get(i) as string),
+      ofi: Number(ofi.get(i)),
     }
   }
   return rows

@@ -10,6 +10,10 @@
 
     /* Bundler mode */
     "moduleResolution": "bundler",
+    /* uplot ships dist/uPlot.d.ts but its package.json has no "types"
+     * field pointing at it, so bundler resolution can't find it on its
+     * own — map the specifier straight at the file. */
+    "paths": { "uplot": ["./node_modules/uplot/dist/uPlot.d.ts"] },
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
