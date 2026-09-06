@@ -17,7 +17,10 @@ use crate::model::parse_kline_row;
 use crate::ratelimit::{backoff_delay, build_limiter, parse_retry_after, BackoffConfig, Limiter};
 use crate::{ExchangeSource, Instrument, StreamKind, TimeRange};
 
-const EXCHANGE_ID: &str = "binance";
+/// Binance's `exchange` value everywhere it's stored (Parquet rows,
+/// `meta.duckdb`) and the default scope for any query that filters by
+/// exchange but has no other exchange to choose from yet.
+pub const EXCHANGE_ID: &str = "binance";
 /// Binance's own cap on `limit` for `/api/v3/klines` and `/api/v3/aggTrades`.
 const REST_PAGE_LIMIT: u32 = 1000;
 
@@ -360,6 +363,17 @@ fn live_stream(
                     to = %reconnect_at,
                     "reconnect gap detected, backfilling via REST (FR-1.5)"
                 );
+                // Tracks whether every gap-fill call below actually
+                // succeeded. `last_event_time` must only advance past
+                // `gap_from` when that's true — otherwise a transient REST
+                // failure right after a disconnect (exactly when network
+                // conditions are often still bad) would silently and
+                // permanently drop that window: the next reconnect would
+                // only fill forward from `reconnect_at`, never revisit the
+                // missed range. Re-fetching the same range again next time
+                // is safe (write-path dedup on `(exchange, interval,
+                // open_time)` / `(exchange, trade_id)` absorbs the repeat).
+                let mut gapfill_failed = false;
                 for kind in &streams {
                     match kind {
                         StreamKind::Kline(interval) => {
@@ -378,7 +392,8 @@ fn live_stream(
                                         );
                                     }
                                     Err(e) => {
-                                        tracing::warn!(symbol = %symbol, error = %e, "kline gap-fill failed");
+                                        gapfill_failed = true;
+                                        tracing::warn!(symbol = %symbol, error = %e, "kline gap-fill failed, will retry this window on next reconnect");
                                     }
                                 }
                             }
@@ -398,7 +413,8 @@ fn live_stream(
                                         );
                                     }
                                     Err(e) => {
-                                        tracing::warn!(symbol = %symbol, error = %e, "trade gap-fill failed");
+                                        gapfill_failed = true;
+                                        tracing::warn!(symbol = %symbol, error = %e, "trade gap-fill failed, will retry this window on next reconnect");
                                     }
                                 }
                             }
@@ -408,7 +424,15 @@ fn live_stream(
                         }
                     }
                 }
-                last_event_time = Some(reconnect_at);
+                if gapfill_failed {
+                    tracing::warn!(
+                        from = %gap_from,
+                        to = %reconnect_at,
+                        "gap-fill incomplete for at least one symbol/stream; keeping the original gap open and retrying it on the next reconnect"
+                    );
+                } else {
+                    last_event_time = Some(reconnect_at);
+                }
             }
 
             let delay = backoff_delay(&client.inner.backoff, attempt);

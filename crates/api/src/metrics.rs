@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::extract::{MatchedPath, State};
-use axum::http::Request;
+use axum::http::{Method, Request};
 use axum::middleware::Next;
 use axum::response::Response;
 use prometheus::{HistogramOpts, HistogramVec, IntCounterVec, Opts, Registry, TextEncoder};
@@ -60,6 +60,23 @@ impl Metrics {
     }
 }
 
+/// The standard HTTP methods this API ever routes; anything else collapses
+/// to `"other"` so a client sending arbitrary method tokens (any ASCII
+/// token is a legal HTTP method per RFC 7230) can't blow up the
+/// `method` label's cardinality.
+fn normalize_method(method: &Method) -> &'static str {
+    match *method {
+        Method::GET => "GET",
+        Method::POST => "POST",
+        Method::PUT => "PUT",
+        Method::DELETE => "DELETE",
+        Method::PATCH => "PATCH",
+        Method::HEAD => "HEAD",
+        Method::OPTIONS => "OPTIONS",
+        _ => "other",
+    }
+}
+
 /// Records request count, latency, and (for non-2xx) error-count metrics
 /// for every request (FR-6.3). The route *pattern* is used as a label
 /// (e.g. `/ohlcv/:symbol`), never the concrete path — using the literal
@@ -70,7 +87,7 @@ pub async fn track_metrics(
     req: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    let method = req.method().to_string();
+    let method = normalize_method(req.method());
     let route = req
         .extensions()
         .get::<MatchedPath>()
@@ -85,12 +102,12 @@ pub async fn track_metrics(
     state
         .metrics
         .http_requests_total
-        .with_label_values(&[&method, &route, status.as_str()])
+        .with_label_values(&[method, &route, status.as_str()])
         .inc();
     state
         .metrics
         .http_request_duration_seconds
-        .with_label_values(&[&method, &route])
+        .with_label_values(&[method, &route])
         .observe(elapsed);
     if status.is_client_error() || status.is_server_error() {
         state

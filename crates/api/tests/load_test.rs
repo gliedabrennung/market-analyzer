@@ -37,6 +37,7 @@ async fn sustains_100_rps_on_ohlcv_without_growing_errors() {
         max_date_range_days: 366,
         default_pagination_limit: 1000,
         max_pagination_limit: 10_000,
+        max_correlation_symbols: 10,
     };
     let app = build_app(pool, exchange, limits).expect("building app");
 

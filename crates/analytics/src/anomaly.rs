@@ -1,17 +1,21 @@
 use chrono::{DateTime, Utc};
 use duckdb::Connection;
+use rust_decimal::Decimal;
 use serde::Serialize;
 
 use ma_core::{Interval, Symbol};
 
 use crate::error::AnalyticsError;
-use crate::rowutil::timestamp_col;
+use crate::rowutil::{decimal_col, timestamp_col};
 
 /// One detected volume anomaly (FR-3.4).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct VolumeAnomaly {
     pub open_time: DateTime<Utc>,
-    pub volume: f64,
+    /// Stored trade volume, so `Decimal`, never `f64`.
+    pub volume: Decimal,
+    /// A genuinely-derived statistic (standard scores over log-free window
+    /// stats), not a stored quantity — `f64` is correct here.
     pub z_score: f64,
 }
 
@@ -19,6 +23,7 @@ pub struct VolumeAnomaly {
 /// excluding itself) exceeds `threshold` (defaults 100 / 3.0 per FR-3.4).
 pub fn volume_anomalies(
     conn: &Connection,
+    exchange: &str,
     symbol: &Symbol,
     interval: Interval,
     window: u32,
@@ -35,6 +40,7 @@ pub fn volume_anomalies(
     let mut rows = stmt.query(duckdb::params![
         i64::from(window),
         i64::from(window),
+        exchange,
         symbol.as_str(),
         interval.as_str(),
         threshold
@@ -44,7 +50,7 @@ pub fn volume_anomalies(
     while let Some(row) = rows.next()? {
         out.push(VolumeAnomaly {
             open_time: timestamp_col(row, 0)?,
-            volume: row.get(1)?,
+            volume: decimal_col(row, 1)?,
             z_score: row.get(2)?,
         });
     }
@@ -91,7 +97,8 @@ mod tests {
         // *varying* baseline is asserted numerically in the next test.
         let conn = setup(&["10", "10", "10", "10", "10", "1000"]);
         let symbol = Symbol::new("BTCUSDT").unwrap();
-        let anomalies = volume_anomalies(&conn, &symbol, Interval::OneMinute, 5, 3.0).unwrap();
+        let anomalies =
+            volume_anomalies(&conn, "binance", &symbol, Interval::OneMinute, 5, 3.0).unwrap();
         assert_eq!(anomalies.len(), 0);
     }
 
@@ -101,7 +108,8 @@ mod tests {
         // spike of 20: z = (20-10)/sqrt(2) ≈ 7.0710678.
         let conn = setup(&["8", "10", "12", "10", "10", "20"]);
         let symbol = Symbol::new("BTCUSDT").unwrap();
-        let anomalies = volume_anomalies(&conn, &symbol, Interval::OneMinute, 5, 3.0).unwrap();
+        let anomalies =
+            volume_anomalies(&conn, "binance", &symbol, Interval::OneMinute, 5, 3.0).unwrap();
         assert_eq!(anomalies.len(), 1);
         let expected_z = (20.0 - 10.0) / 2.0f64.sqrt();
         assert!((anomalies[0].z_score - expected_z).abs() < 1e-6);
@@ -111,6 +119,6 @@ mod tests {
     fn rejects_zero_window() {
         let conn = setup(&["1"]);
         let symbol = Symbol::new("BTCUSDT").unwrap();
-        assert!(volume_anomalies(&conn, &symbol, Interval::OneMinute, 0, 3.0).is_err());
+        assert!(volume_anomalies(&conn, "binance", &symbol, Interval::OneMinute, 0, 3.0).is_err());
     }
 }

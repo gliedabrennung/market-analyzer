@@ -29,37 +29,43 @@ pub fn run(args: QueryArgs, config: &AppConfig) -> Result<()> {
 
     match args.name.as_str() {
         "resample" => {
+            let exchange = exchange_param(&params);
             let bucket_seconds: i64 = param_or(&params, "bucket_seconds", 300)?;
             let (from, to) = date_range_param(&params)?;
-            let rows = resample_ohlcv(conn, &symbol, bucket_seconds, from, to)?;
+            let rows = resample_ohlcv(conn, &exchange, &symbol, bucket_seconds, from, to)?;
             print_rows(&rows, args.format)?;
         }
         "vwap" => {
+            let exchange = exchange_param(&params);
             let interval = interval_param(&params)?;
             let window: u32 = param_or(&params, "window", 20)?;
-            let rows = vwap(conn, &symbol, interval, window)?;
+            let rows = vwap(conn, &exchange, &symbol, interval, window)?;
             print_rows(&rows, args.format)?;
         }
         "volatility" => {
+            let exchange = exchange_param(&params);
             let interval = interval_param(&params)?;
             let window: u32 = param_or(&params, "window", 20)?;
-            let rows = realized_volatility(conn, &symbol, interval, window)?;
+            let rows = realized_volatility(conn, &exchange, &symbol, interval, window)?;
             print_rows(&rows, args.format)?;
         }
         "anomalies" => {
+            let exchange = exchange_param(&params);
             let interval = interval_param(&params)?;
             let window: u32 = param_or(&params, "window", 100)?;
             let threshold: f64 = param_or(&params, "threshold", 3.0)?;
-            let rows = volume_anomalies(conn, &symbol, interval, window, threshold)?;
+            let rows = volume_anomalies(conn, &exchange, &symbol, interval, window, threshold)?;
             print_rows(&rows, args.format)?;
         }
         "ofi" => {
+            let exchange = exchange_param(&params);
             let bucket_seconds: i64 = param_or(&params, "bucket_seconds", 60)?;
             let (from, to) = date_range_param(&params)?;
-            let rows = order_flow_imbalance(conn, &symbol, bucket_seconds, from, to)?;
+            let rows = order_flow_imbalance(conn, &exchange, &symbol, bucket_seconds, from, to)?;
             print_rows(&rows, args.format)?;
         }
         "correlation" => {
+            let exchange = exchange_param(&params);
             let interval = interval_param(&params)?;
             let symbols_str = params
                 .get("symbols")
@@ -69,15 +75,12 @@ pub fn run(args: QueryArgs, config: &AppConfig) -> Result<()> {
                 .split(',')
                 .map(|s| Symbol::new(s.trim()).map_err(|e| anyhow::anyhow!("--param symbols: {e}")))
                 .collect::<Result<_>>()?;
-            let rows = correlation_matrix(conn, &symbols, interval)?;
+            let rows = correlation_matrix(conn, &exchange, &symbols, interval)?;
             print_rows(&rows, args.format)?;
         }
         "spread" => {
             let interval = interval_param(&params)?;
-            let exchange_a = params
-                .get("exchange")
-                .cloned()
-                .unwrap_or_else(|| "binance".to_string());
+            let exchange_a = exchange_param(&params);
             let other_symbol_str = params
                 .get("other_symbol")
                 .context("query --name spread needs --param other_symbol=<SYM>")?;
@@ -114,6 +117,13 @@ where
         Some(v) => v.parse().map_err(|e| anyhow::anyhow!("--param {key}: {e}")),
         None => Ok(default),
     }
+}
+
+fn exchange_param(params: &HashMap<String, String>) -> String {
+    params
+        .get("exchange")
+        .cloned()
+        .unwrap_or_else(|| "binance".to_string())
 }
 
 fn interval_param(params: &HashMap<String, String>) -> Result<Interval> {

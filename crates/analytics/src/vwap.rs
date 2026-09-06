@@ -6,7 +6,7 @@ use serde::Serialize;
 use ma_core::{Interval, Symbol};
 
 use crate::error::AnalyticsError;
-use crate::rowutil::{decimal_col, timestamp_col};
+use crate::rowutil::{decimal_col, decimal_col_opt, timestamp_col};
 
 /// One point of a rolling VWAP series (FR-3.2).
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -14,13 +14,15 @@ pub struct VwapPoint {
     pub open_time: DateTime<Utc>,
     pub close: Decimal,
     /// `None` for the very first bar(s) of a symbol/interval that has no
-    /// volume in its window yet (all-zero window).
-    pub vwap: Option<f64>,
+    /// volume in its window yet (all-zero window). A price like `close`, so
+    /// `Decimal`, never `f64` (NFR-3.4-adjacent money-safety rule).
+    pub vwap: Option<Decimal>,
 }
 
 /// Rolling VWAP over the last `window` klines (default 20 per FR-3.2).
 pub fn vwap(
     conn: &Connection,
+    exchange: &str,
     symbol: &Symbol,
     interval: Interval,
     window: u32,
@@ -37,6 +39,7 @@ pub fn vwap(
     let mut rows = stmt.query(duckdb::params![
         frame,
         frame,
+        exchange,
         symbol.as_str(),
         interval.as_str()
     ])?;
@@ -46,7 +49,7 @@ pub fn vwap(
         out.push(VwapPoint {
             open_time: timestamp_col(row, 0)?,
             close: decimal_col(row, 1)?,
-            vwap: row.get::<_, Option<f64>>(2)?,
+            vwap: decimal_col_opt(row, 2)?,
         });
     }
     Ok(out)
@@ -91,23 +94,61 @@ mod tests {
 
     #[test]
     fn vwap_window_3_matches_hand_computed_value() {
+        use std::str::FromStr;
+
         let conn = setup();
         let symbol = Symbol::new("BTCUSDT").unwrap();
-        let points = vwap(&conn, &symbol, Interval::OneMinute, 3).unwrap();
+        let points = vwap(&conn, "binance", &symbol, Interval::OneMinute, 3).unwrap();
         assert_eq!(points.len(), 3);
 
         // bar 1: vwap = 100
-        assert!((points[0].vwap.unwrap() - 100.0).abs() < 1e-6);
+        assert_eq!(
+            points[0].vwap,
+            Some(Decimal::from_str("100.00000000").unwrap())
+        );
         // bar 2: (100*1 + 200*1) / (1+1) = 150
-        assert!((points[1].vwap.unwrap() - 150.0).abs() < 1e-6);
+        assert_eq!(
+            points[1].vwap,
+            Some(Decimal::from_str("150.00000000").unwrap())
+        );
         // bar 3: (100*1 + 200*1 + 300*2) / (1+1+2) = 900/4 = 225
-        assert!((points[2].vwap.unwrap() - 225.0).abs() < 1e-6);
+        assert_eq!(
+            points[2].vwap,
+            Some(Decimal::from_str("225.00000000").unwrap())
+        );
+    }
+
+    #[test]
+    fn zero_volume_window_yields_none_not_a_crash() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE klines (
+                open_time TIMESTAMP, close_time TIMESTAMP, symbol VARCHAR, exchange VARCHAR,
+                interval VARCHAR, open DECIMAL(18,8), high DECIMAL(18,8), low DECIMAL(18,8),
+                close DECIMAL(18,8), volume DECIMAL(28,8), quote_volume DECIMAL(28,8),
+                trades_count INTEGER, taker_buy_base DECIMAL(28,8), is_closed BOOLEAN
+            )",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO klines
+             (open_time, close_time, symbol, exchange, interval, open, high, low, close, volume, quote_volume, trades_count, is_closed)
+             VALUES ('2026-01-01 00:00:00', '2026-01-01 00:00:00', 'BTCUSDT', 'binance', '1m',
+                     CAST('5' AS DECIMAL(18,8)), CAST('5' AS DECIMAL(18,8)), CAST('5' AS DECIMAL(18,8)), CAST('5' AS DECIMAL(18,8)),
+                     CAST('0' AS DECIMAL(28,8)), CAST('0' AS DECIMAL(28,8)), 1, true)",
+            [],
+        )
+        .unwrap();
+        let symbol = Symbol::new("BTCUSDT").unwrap();
+        let points = vwap(&conn, "binance", &symbol, Interval::OneMinute, 3).unwrap();
+        assert_eq!(points.len(), 1);
+        assert_eq!(points[0].vwap, None);
     }
 
     #[test]
     fn rejects_zero_window() {
         let conn = setup();
         let symbol = Symbol::new("BTCUSDT").unwrap();
-        assert!(vwap(&conn, &symbol, Interval::OneMinute, 0).is_err());
+        assert!(vwap(&conn, "binance", &symbol, Interval::OneMinute, 0).is_err());
     }
 }

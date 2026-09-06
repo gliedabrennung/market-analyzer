@@ -43,7 +43,7 @@ pub async fn run(args: BackfillArgs, config: &AppConfig) -> Result<()> {
             "backfill start"
         );
 
-        let klines = exchange
+        let fetched_klines = exchange
             .klines(
                 &symbol,
                 interval,
@@ -55,7 +55,18 @@ pub async fn run(args: BackfillArgs, config: &AppConfig) -> Result<()> {
             .await
             .with_context(|| format!("fetching klines for {symbol}"))?;
 
-        let fetched = klines.len();
+        let fetched = fetched_klines.len();
+        // Binance's REST /api/v3/klines returns the still-forming current
+        // candle when the requested range includes "now" (e.g. `--to
+        // <today>`). Parquet files are immutable and the dedup key is
+        // (exchange, interval, open_time), so persisting that partial
+        // snapshot would permanently freeze it — no later backfill or
+        // stream run could ever correct it, since the dedup check only
+        // looks at open_time, not is_closed. Mirrors the same guard in
+        // `stream.rs`.
+        let incomplete = fetched_klines.iter().filter(|k| !k.is_closed).count();
+        let klines: Vec<_> = fetched_klines.into_iter().filter(|k| k.is_closed).collect();
+
         let written = store
             .write_klines(&klines)
             .with_context(|| format!("writing klines for {symbol}"))?;
@@ -73,8 +84,8 @@ pub async fn run(args: BackfillArgs, config: &AppConfig) -> Result<()> {
         }
 
         println!(
-            "{symbol} {interval}: fetched {fetched}, written {written}, skipped duplicates {}",
-            fetched.saturating_sub(written)
+            "{symbol} {interval}: fetched {fetched}, written {written}, skipped duplicates {}, skipped incomplete {incomplete}",
+            fetched.saturating_sub(written).saturating_sub(incomplete)
         );
     }
 

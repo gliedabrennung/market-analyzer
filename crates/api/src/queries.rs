@@ -25,6 +25,7 @@ pub struct OhlcvRow {
 #[allow(clippy::too_many_arguments)]
 pub fn fetch_ohlcv(
     conn: &Connection,
+    exchange: &str,
     symbol: &str,
     interval: &str,
     from: NaiveDateTime,
@@ -33,7 +34,9 @@ pub fn fetch_ohlcv(
     offset: i64,
 ) -> Result<Vec<OhlcvRow>, duckdb::Error> {
     let mut stmt = conn.prepare(include_str!("../sql/ohlcv.sql"))?;
-    let mut rows = stmt.query(duckdb::params![symbol, interval, from, to, limit, offset])?;
+    let mut rows = stmt.query(duckdb::params![
+        exchange, symbol, interval, from, to, limit, offset
+    ])?;
 
     let mut out = Vec::new();
     while let Some(row) = rows.next()? {

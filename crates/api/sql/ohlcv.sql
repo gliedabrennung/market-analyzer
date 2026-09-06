@@ -1,5 +1,7 @@
 -- FR-5.1 GET /ohlcv/{symbol}: bounded, paginated raw candles.
--- Params, in order: symbol, interval, from_ts (inclusive), to_ts (exclusive), limit, offset
+-- Scoped by `exchange` so a future second exchange's rows for the same
+-- symbol can never silently interleave into one series (architecture goal Ц4).
+-- Params, in order: exchange, symbol, interval, from_ts (inclusive), to_ts (exclusive), limit, offset
 SELECT
     open_time, close_time,
     CAST(open AS VARCHAR) AS open,
@@ -11,6 +13,6 @@ SELECT
     trades_count,
     is_closed
 FROM klines
-WHERE symbol = ? AND interval = ? AND open_time >= ? AND open_time < ?
+WHERE exchange = ? AND symbol = ? AND interval = ? AND open_time >= ? AND open_time < ?
 ORDER BY open_time
 LIMIT ? OFFSET ?

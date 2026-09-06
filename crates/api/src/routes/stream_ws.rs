@@ -8,7 +8,7 @@ use futures::StreamExt;
 use ma_core::{MarketEvent, Symbol};
 use ma_exchanges::{ExchangeSource, StreamKind};
 
-use crate::error::ApiError;
+use crate::error::{error_envelope, ApiError};
 use crate::state::AppState;
 use crate::validation;
 
@@ -40,7 +40,7 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, symbol: Symb
         Err(e) => {
             let _ = socket
                 .send(Message::Text(
-                    serde_json::json!({ "error": e.to_string() }).to_string(),
+                    error_envelope("internal_error", e.to_string()).to_string(),
                 ))
                 .await;
             return;

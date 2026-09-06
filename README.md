@@ -142,14 +142,16 @@ market-analyzer serve [--port 8080]
 | GET | `/analytics/{symbol}/volatility` | `interval`, `window`, `limit`, `offset` |
 | GET | `/analytics/{symbol}/anomalies` | `interval`, `window`, `threshold`, `limit`, `offset` |
 | GET | `/analytics/{symbol}/ofi` | `bucket`, `from`, `to`, `limit`, `offset` |
-| GET | `/analytics/correlation` | `symbols` (через запятую), `interval` |
+| GET | `/analytics/correlation` | `symbols` (через запятую, максимум 10 — расчёт O(n²)), `interval` |
 | WS | `/stream/{symbol}` | проброс живых сделок |
 | GET | `/metrics` | Prometheus-метрики (FR-6.3) |
 
 `from`/`to` — `YYYY-MM-DD` или RFC3339. Ошибки — всегда
 `{"error":{"code","message","details"}}` (FR-5.2): `400` — невалидные
 параметры, `404` — неизвестный символ, `429` — превышен лимит, `500` —
-внутренняя ошибка.
+внутренняя ошибка. `429`/`RateLimited` определён по таксономии FR-5.2, но
+сейчас ничем не производится (нет rate-limiting логики на HTTP-уровне) —
+зарезервирован на будущее.
 
 ```bash
 curl 'http://localhost:8080/analytics/BTCUSDT/vwap?window=20&limit=5'
@@ -198,3 +200,12 @@ crates/
   рамках разработки (см. `BENCHMARKS.md`) — 8-минутный прогон на 20 символах
   показал здоровый профиль (~105 МБ из бюджета 512 МБ), но это не то же
   самое, что 12 часов.
+- `vwap`, `volatility` и `anomalies` (CLI и HTTP) сканируют всю историю
+  символа/интервала под своим скользящим окном — `from`/`to` для них не
+  предусмотрены. Корректно ограничить диапазон без порчи статистики у
+  границ скользящего окна требует отдельного редизайна (pushdown `to`
+  безопасен, `from` можно применять только к выводу, LIMIT/OFFSET для
+  window-функций нужна обёртывающая SELECT); на объёмах, которые собирает
+  этот сервис сейчас, не является узким местом. `/analytics/correlation`
+  ограничен 10 символами (см. выше) — единственный из аналитических
+  запросов с O(n²)-стоимостью.

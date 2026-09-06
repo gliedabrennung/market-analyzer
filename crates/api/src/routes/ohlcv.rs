@@ -35,6 +35,7 @@ pub async fn ohlcv(
         .with_meta(move |meta| {
             fetch_ohlcv(
                 meta.connection(),
+                ma_exchanges::binance::EXCHANGE_ID,
                 symbol.as_str(),
                 interval.as_str(),
                 from,

@@ -1,10 +1,15 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use duckdb::Connection;
 
 use crate::error::StorageError;
 use crate::paths::{list_part_files, next_part_index, sql_quote_path};
+
+/// Suffix for a compaction's write-ahead manifest — never matches
+/// `part-*.parquet`, so it's invisible to `list_part_files`/`next_part_index`
+/// and to the DuckDB glob views. See [`recover_incomplete_compaction`].
+const MANIFEST_SUFFIX: &str = ".compacted-manifest";
 
 /// Outcome of compacting one partition directory (FR-2.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,13 +30,21 @@ pub struct CompactionResult {
 /// row checksum, `sum(hash(row))`, so a `COPY`-induced reorder can't cause
 /// a false mismatch) against the originals *before* any original file is
 /// deleted. A crash between "merged file written" and "originals deleted"
-/// leaves both on disk — a transient over-count an operator can resolve by
-/// re-running `compact`, never data loss (NFR-2.1's spirit, applied to a
-/// multi-file rewrite rather than a single-file write).
+/// leaves both on disk — a transient over-count a query might see, and
+/// which this function's own next run resolves automatically: a
+/// write-ahead manifest naming exactly the files this compaction replaces
+/// is durably in place *before* the merge is written, so
+/// [`recover_incomplete_compaction`] can always finish an interrupted
+/// cleanup — deleting exactly those files, nothing more — before computing
+/// a fresh "before" checksum. Without this, a second run could otherwise
+/// compute its checksum over the still-duplicated glob and "verify" a merge
+/// that silently bakes the duplicate in permanently.
 pub fn compact_partition(
     dir: &Path,
     order_by_column: &str,
 ) -> Result<CompactionResult, StorageError> {
+    recover_incomplete_compaction(dir)?;
+
     let existing = list_part_files(dir)?;
     let bytes_before = total_size(&existing);
 
@@ -59,6 +72,8 @@ pub fn compact_partition(
     let tmp_path = dir.join(format!("part-{new_index:04}.parquet.tmp"));
     let final_path = dir.join(format!("part-{new_index:04}.parquet"));
 
+    let manifest_path = write_manifest(dir, new_index, &existing)?;
+
     let copy_sql = format!(
         "COPY (SELECT * FROM read_parquet('{glob}') ORDER BY {order_by_column})
          TO '{dest}' (FORMAT PARQUET, COMPRESSION zstd)",
@@ -71,6 +86,7 @@ pub fn compact_partition(
 
     if count_before != count_after || checksum_before != checksum_after {
         let _ = fs::remove_file(&tmp_path);
+        let _ = fs::remove_file(&manifest_path);
         return Err(StorageError::CompactionMismatch {
             path: dir.display().to_string(),
             count_before,
@@ -81,9 +97,7 @@ pub fn compact_partition(
     }
 
     fs::rename(&tmp_path, &final_path)?;
-    for f in &existing {
-        fs::remove_file(f)?;
-    }
+    delete_manifested_files(&manifest_path)?;
 
     let bytes_after = fs::metadata(&final_path).map(|m| m.len()).unwrap_or(0);
 
@@ -94,6 +108,64 @@ pub fn compact_partition(
         bytes_before,
         bytes_after,
     })
+}
+
+/// Finishes any compaction whose merged file was already written (and
+/// checksum-verified) but whose original-file cleanup was interrupted by a
+/// crash. Run automatically at the start of every [`compact_partition`]
+/// call, so a dangling manifest is always resolved before any new
+/// compaction computes a "before" checksum over the same directory.
+fn recover_incomplete_compaction(dir: &Path) -> Result<(), StorageError> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.into()),
+    };
+    for entry in entries {
+        let path = entry?.path();
+        let is_manifest = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.ends_with(MANIFEST_SUFFIX));
+        if is_manifest {
+            tracing::info!(path = %path.display(), "resuming compaction cleanup left incomplete by a previous run");
+            delete_manifested_files(&path)?;
+        }
+    }
+    Ok(())
+}
+
+/// Durably records, *before* the merged file is written, exactly which
+/// files this compaction will make redundant — written via the usual
+/// tmp-then-rename pattern so the manifest itself never appears half-written.
+fn write_manifest(dir: &Path, new_index: u32, files: &[PathBuf]) -> Result<PathBuf, StorageError> {
+    let tmp_path = dir.join(format!("part-{new_index:04}{MANIFEST_SUFFIX}.tmp"));
+    let final_path = dir.join(format!("part-{new_index:04}{MANIFEST_SUFFIX}"));
+    let names: Vec<&str> = files
+        .iter()
+        .filter_map(|p| p.file_name().and_then(|n| n.to_str()))
+        .collect();
+    fs::write(&tmp_path, names.join("\n"))?;
+    fs::rename(&tmp_path, &final_path)?;
+    Ok(final_path)
+}
+
+/// Deletes every file named in `manifest_path` (tolerating one already
+/// having been removed by a prior, interrupted attempt), then the manifest
+/// itself — the manifest's presence is exactly what future runs use to
+/// detect that this cleanup hasn't finished yet.
+fn delete_manifested_files(manifest_path: &Path) -> Result<(), StorageError> {
+    let dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let contents = fs::read_to_string(manifest_path)?;
+    for name in contents.lines().filter(|l| !l.is_empty()) {
+        match fs::remove_file(dir.join(name)) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    fs::remove_file(manifest_path)?;
+    Ok(())
 }
 
 fn total_size(paths: &[std::path::PathBuf]) -> u64 {
@@ -191,6 +263,58 @@ mod tests {
         let (count_after, checksum_after) = aggregate_checksum(&engine, &glob).unwrap();
         assert_eq!(count_before, count_after);
         assert_eq!(checksum_before, checksum_after);
+    }
+
+    #[test]
+    fn recovers_from_manifest_left_by_a_crash_between_rename_and_cleanup() {
+        let tmp = tempdir().unwrap();
+        let store = crate::KlineStore::new(tmp.path()).unwrap();
+        let base = Utc.with_ymd_and_hms(2026, 8, 1, 0, 0, 0).unwrap();
+        for minute in 0..3i64 {
+            store.write_klines(&[kline_at(base, minute)]).unwrap();
+        }
+        let dir = crate::paths::partition_dir(
+            tmp.path(),
+            "klines",
+            "BTCUSDT",
+            chrono::NaiveDate::from_ymd_opt(2026, 8, 1).unwrap(),
+        );
+        let existing = list_part_files(&dir).unwrap();
+        assert_eq!(existing.len(), 3);
+
+        // Hand-construct exactly the "crashed between rename and cleanup"
+        // state: the merged file is already written and correct, its
+        // manifest (naming the 3 originals it replaces) is in place, but
+        // none of the originals has been deleted yet.
+        let manifest_path = write_manifest(&dir, 3, &existing).unwrap();
+        let engine = Connection::open_in_memory().unwrap();
+        let glob = sql_quote_path(&dir.join("part-*.parquet"));
+        let final_path = dir.join("part-0003.parquet");
+        engine
+            .execute_batch(&format!(
+                "COPY (SELECT * FROM read_parquet('{glob}') ORDER BY open_time)
+                 TO '{dest}' (FORMAT PARQUET, COMPRESSION zstd)",
+                dest = sql_quote_path(&final_path)
+            ))
+            .unwrap();
+        assert!(manifest_path.exists());
+        // Transient duplicate: the 3 originals plus the merged file that
+        // already contains their rows.
+        assert_eq!(list_part_files(&dir).unwrap().len(), 4);
+
+        // A retried `compact_partition` must finish the interrupted cleanup
+        // *before* computing any fresh checksum, so it must never see —
+        // let alone silently verify and bake in — that transient duplicate.
+        let result = compact_partition(&dir, "open_time").unwrap();
+        assert_eq!(result.files_before, 1);
+        assert_eq!(result.files_after, 1);
+        assert_eq!(
+            result.rows, 3,
+            "must recover to the true row count, not the transient double-count"
+        );
+
+        assert!(!manifest_path.exists());
+        assert_eq!(list_part_files(&dir).unwrap(), vec![final_path]);
     }
 
     #[test]

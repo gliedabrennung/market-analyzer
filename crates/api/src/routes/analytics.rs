@@ -36,7 +36,14 @@ pub async fn vwap(
     let rows = state
         .pool
         .with_meta(move |meta| {
-            vwap_query(meta.connection(), &symbol, interval, window).map_err(ApiError::from)
+            vwap_query(
+                meta.connection(),
+                ma_exchanges::binance::EXCHANGE_ID,
+                &symbol,
+                interval,
+                window,
+            )
+            .map_err(ApiError::from)
         })
         .await?;
     Ok(Json(validation::paginate(rows, limit, offset)))
@@ -56,8 +63,14 @@ pub async fn volatility(
     let rows = state
         .pool
         .with_meta(move |meta| {
-            realized_volatility(meta.connection(), &symbol, interval, window)
-                .map_err(ApiError::from)
+            realized_volatility(
+                meta.connection(),
+                ma_exchanges::binance::EXCHANGE_ID,
+                &symbol,
+                interval,
+                window,
+            )
+            .map_err(ApiError::from)
         })
         .await?;
     Ok(Json(validation::paginate(rows, limit, offset)))
@@ -87,8 +100,15 @@ pub async fn anomalies(
     let rows = state
         .pool
         .with_meta(move |meta| {
-            volume_anomalies(meta.connection(), &symbol, interval, window, threshold)
-                .map_err(ApiError::from)
+            volume_anomalies(
+                meta.connection(),
+                ma_exchanges::binance::EXCHANGE_ID,
+                &symbol,
+                interval,
+                window,
+                threshold,
+            )
+            .map_err(ApiError::from)
         })
         .await?;
     Ok(Json(validation::paginate(rows, limit, offset)))
@@ -120,8 +140,15 @@ pub async fn ofi(
     let rows = state
         .pool
         .with_meta(move |meta| {
-            order_flow_imbalance(meta.connection(), &symbol, bucket_seconds, from_utc, to_utc)
-                .map_err(ApiError::from)
+            order_flow_imbalance(
+                meta.connection(),
+                ma_exchanges::binance::EXCHANGE_ID,
+                &symbol,
+                bucket_seconds,
+                from_utc,
+                to_utc,
+            )
+            .map_err(ApiError::from)
         })
         .await?;
     Ok(Json(validation::paginate(rows, limit, offset)))
@@ -150,6 +177,16 @@ pub async fn correlation(
             "need at least 2 comma-separated symbols",
         ));
     }
+    if raw_symbols.len() > state.limits.max_correlation_symbols {
+        return Err(ApiError::bad_request(
+            "symbols",
+            format!(
+                "at most {} symbols allowed, got {}",
+                state.limits.max_correlation_symbols,
+                raw_symbols.len()
+            ),
+        ));
+    }
 
     let mut symbols: Vec<Symbol> = Vec::with_capacity(raw_symbols.len());
     for raw in raw_symbols {
@@ -160,7 +197,13 @@ pub async fn correlation(
     let rows = state
         .pool
         .with_meta(move |meta| {
-            correlation_matrix(meta.connection(), &symbols, interval).map_err(ApiError::from)
+            correlation_matrix(
+                meta.connection(),
+                ma_exchanges::binance::EXCHANGE_ID,
+                &symbols,
+                interval,
+            )
+            .map_err(ApiError::from)
         })
         .await?;
     Ok(Json(rows))

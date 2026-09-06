@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ma_storage::MetaStore;
 use tokio::sync::{mpsc, Mutex};
@@ -13,6 +13,7 @@ use crate::error::ApiError;
 /// for the actual (synchronous) DuckDB work — FR-5.4 forbids blocking the
 /// async executor — and returned to the channel afterward.
 pub struct DbPool {
+    meta_db_path: PathBuf,
     tx: mpsc::Sender<MetaStore>,
     rx: Mutex<mpsc::Receiver<MetaStore>>,
 }
@@ -29,6 +30,7 @@ impl DbPool {
             })?;
         }
         Ok(Self {
+            meta_db_path: meta_db_path.as_ref().to_path_buf(),
             tx,
             rx: Mutex::new(rx),
         })
@@ -60,7 +62,22 @@ impl DbPool {
                 let _ = tx.try_send(store);
                 result
             }
-            Err(join_error) => Err(ApiError::Internal(format!("db task failed: {join_error}"))),
+            Err(join_error) => {
+                // The closure panicked, taking its `MetaStore` handle down
+                // with it — the channel is now permanently one short unless
+                // we replenish it. Open a fresh read-only connection to
+                // refill the slot; if that also fails, the pool is one
+                // handle smaller but still correct (never wrong data, just
+                // reduced concurrency) rather than eventually deadlocking
+                // every caller on `rx.recv()`.
+                if join_error.is_panic() {
+                    tracing::error!(error = %join_error, "db pool worker panicked, replenishing pool slot");
+                    if let Ok(fresh) = MetaStore::open_read_only(&self.meta_db_path) {
+                        let _ = tx.try_send(fresh);
+                    }
+                }
+                Err(ApiError::Internal(format!("db task failed: {join_error}")))
+            }
         }
     }
 }

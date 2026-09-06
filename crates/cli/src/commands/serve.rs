@@ -24,6 +24,7 @@ pub async fn run(args: ServeArgs, config: &AppConfig) -> Result<()> {
         max_date_range_days: config.api_max_date_range_days,
         default_pagination_limit: 1000,
         max_pagination_limit: 10_000,
+        max_correlation_symbols: 10,
     };
 
     let app = build_app(pool, exchange, limits).context("building API router")?;

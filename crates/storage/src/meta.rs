@@ -132,6 +132,11 @@ impl MetaStore {
     /// Record that `[exchange, symbol, dataset, interval]` has been
     /// collected up to `last_ts`, keeping the maximum across calls.
     /// `interval` is `None` for the `trades` dataset (TZ 5.3).
+    ///
+    /// The INSERT-if-absent then UPDATE below is two statements, not one
+    /// atomic upsert — safe only because `MetaStore` is the single writer
+    /// (one `Connection`, never shared across threads); a concurrent writer
+    /// could race between them and lose an update.
     pub fn upsert_collector_state(
         &self,
         exchange: &str,

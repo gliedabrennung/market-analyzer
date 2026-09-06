@@ -21,10 +21,11 @@ pub struct ResampledBar {
     pub trades_count: i64,
 }
 
-/// Resample raw trades for `symbol` into OHLCV bars of `bucket_seconds`
-/// width, over `[from, to)`. Reads the `trades` view (FR-2.6).
+/// Resample raw trades for `exchange`/`symbol` into OHLCV bars of
+/// `bucket_seconds` width, over `[from, to)`. Reads the `trades` view (FR-2.6).
 pub fn resample_ohlcv(
     conn: &Connection,
+    exchange: &str,
     symbol: &Symbol,
     bucket_seconds: i64,
     from: DateTime<Utc>,
@@ -40,6 +41,7 @@ pub fn resample_ohlcv(
     let mut stmt = conn.prepare(include_str!("../sql/resample_ohlcv.sql"))?;
     let mut rows = stmt.query(duckdb::params![
         bucket_seconds,
+        exchange,
         symbol.as_str(),
         from.naive_utc(),
         to.naive_utc()
@@ -100,7 +102,7 @@ mod tests {
         let from = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
         let to = Utc.with_ymd_and_hms(2026, 1, 1, 0, 2, 0).unwrap();
 
-        let bars = resample_ohlcv(&conn, &symbol, 60, from, to).unwrap();
+        let bars = resample_ohlcv(&conn, "binance", &symbol, 60, from, to).unwrap();
         assert_eq!(bars.len(), 2);
 
         assert_eq!(bars[0].open, Decimal::from_str("100").unwrap());
@@ -121,6 +123,6 @@ mod tests {
         let symbol = Symbol::new("BTCUSDT").unwrap();
         let from = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
         let to = Utc.with_ymd_and_hms(2026, 1, 1, 0, 2, 0).unwrap();
-        assert!(resample_ohlcv(&conn, &symbol, 0, from, to).is_err());
+        assert!(resample_ohlcv(&conn, "binance", &symbol, 0, from, to).is_err());
     }
 }

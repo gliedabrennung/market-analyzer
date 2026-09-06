@@ -76,6 +76,19 @@ impl IntoResponse for ApiError {
     }
 }
 
+/// FR-5.2's `{ "error": { code, message, details } }` shape, for the one
+/// call site (the WS upstream-subscribe failure) that reports over a raw
+/// `Message::Text` frame instead of an `IntoResponse`.
+pub fn error_envelope(code: &str, message: impl Into<String>) -> serde_json::Value {
+    json!({
+        "error": {
+            "code": code,
+            "message": message.into(),
+            "details": {},
+        }
+    })
+}
+
 impl From<ma_analytics::AnalyticsError> for ApiError {
     fn from(e: ma_analytics::AnalyticsError) -> Self {
         match e {

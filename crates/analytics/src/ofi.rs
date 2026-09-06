@@ -1,18 +1,23 @@
 use chrono::{DateTime, Utc};
 use duckdb::Connection;
+use rust_decimal::Decimal;
 use serde::Serialize;
 
 use ma_core::Symbol;
 
 use crate::error::AnalyticsError;
-use crate::rowutil::timestamp_col;
+use crate::rowutil::{decimal_col, timestamp_col};
 
 /// Order Flow Imbalance for one time bucket (FR-3.5).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct OfiBucket {
     pub bucket: DateTime<Utc>,
-    pub buy_volume: f64,
-    pub sell_volume: f64,
+    /// Stored trade quantity, so `Decimal`, never `f64`.
+    pub buy_volume: Decimal,
+    /// Stored trade quantity, so `Decimal`, never `f64`.
+    pub sell_volume: Decimal,
+    /// `(buy_volume - sell_volume) / total_volume`: a genuinely-derived
+    /// ratio in `[-1, 1]`, not a stored quantity — `f64` is correct here.
     pub ofi: f64,
 }
 
@@ -20,6 +25,7 @@ pub struct OfiBucket {
 /// bucketed by `bucket_seconds`, over `[from, to)`.
 pub fn order_flow_imbalance(
     conn: &Connection,
+    exchange: &str,
     symbol: &Symbol,
     bucket_seconds: i64,
     from: DateTime<Utc>,
@@ -35,6 +41,7 @@ pub fn order_flow_imbalance(
     let mut stmt = conn.prepare(include_str!("../sql/ofi.sql"))?;
     let mut rows = stmt.query(duckdb::params![
         bucket_seconds,
+        exchange,
         symbol.as_str(),
         from.naive_utc(),
         to.naive_utc()
@@ -44,8 +51,8 @@ pub fn order_flow_imbalance(
     while let Some(row) = rows.next()? {
         out.push(OfiBucket {
             bucket: timestamp_col(row, 0)?,
-            buy_volume: row.get(1)?,
-            sell_volume: row.get(2)?,
+            buy_volume: decimal_col(row, 1)?,
+            sell_volume: decimal_col(row, 2)?,
             ofi: row.get(3)?,
         });
     }
@@ -86,15 +93,23 @@ mod tests {
 
     #[test]
     fn ofi_matches_hand_computed_value() {
+        use std::str::FromStr;
+
         let conn = setup();
         let symbol = Symbol::new("BTCUSDT").unwrap();
         let from = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
         let to = Utc.with_ymd_and_hms(2026, 1, 1, 0, 1, 0).unwrap();
 
-        let buckets = order_flow_imbalance(&conn, &symbol, 60, from, to).unwrap();
+        let buckets = order_flow_imbalance(&conn, "binance", &symbol, 60, from, to).unwrap();
         assert_eq!(buckets.len(), 1);
-        assert!((buckets[0].buy_volume - 5.0).abs() < 1e-9);
-        assert!((buckets[0].sell_volume - 1.0).abs() < 1e-9);
+        assert_eq!(
+            buckets[0].buy_volume,
+            Decimal::from_str("5.00000000").unwrap()
+        );
+        assert_eq!(
+            buckets[0].sell_volume,
+            Decimal::from_str("1.00000000").unwrap()
+        );
         assert!((buckets[0].ofi - (4.0 / 6.0)).abs() < 1e-6);
     }
 
@@ -104,6 +119,6 @@ mod tests {
         let symbol = Symbol::new("BTCUSDT").unwrap();
         let from = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
         let to = Utc.with_ymd_and_hms(2026, 1, 1, 0, 1, 0).unwrap();
-        assert!(order_flow_imbalance(&conn, &symbol, 0, from, to).is_err());
+        assert!(order_flow_imbalance(&conn, "binance", &symbol, 0, from, to).is_err());
     }
 }

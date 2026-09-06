@@ -20,6 +20,7 @@ pub struct VolatilityPoint {
 /// for `interval` — e.g. `sqrt(1440)` for `1m` bars, `1.0` for `1d` bars.
 pub fn realized_volatility(
     conn: &Connection,
+    exchange: &str,
     symbol: &Symbol,
     interval: Interval,
     window: u32,
@@ -36,6 +37,7 @@ pub fn realized_volatility(
 
     let mut stmt = conn.prepare(include_str!("../sql/volatility.sql"))?;
     let mut rows = stmt.query(duckdb::params![
+        exchange,
         symbol.as_str(),
         interval.as_str(),
         frame,
@@ -118,7 +120,9 @@ mod tests {
 
         // interval = 1d => scale factor sqrt(1) = 1, isolating the stddev math itself.
         let window = 3usize;
-        let actual = realized_volatility(&conn, &symbol, Interval::OneDay, window as u32).unwrap();
+        let actual =
+            realized_volatility(&conn, "binance", &symbol, Interval::OneDay, window as u32)
+                .unwrap();
         let expected = reference_volatility(&closes_f64, window);
 
         assert_eq!(actual.len(), expected.len());
@@ -138,6 +142,6 @@ mod tests {
     fn rejects_zero_window() {
         let conn = setup(&[("2026-01-01 00:00:00", "100")]);
         let symbol = Symbol::new("BTCUSDT").unwrap();
-        assert!(realized_volatility(&conn, &symbol, Interval::OneDay, 0).is_err());
+        assert!(realized_volatility(&conn, "binance", &symbol, Interval::OneDay, 0).is_err());
     }
 }

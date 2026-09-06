@@ -19,6 +19,7 @@ pub struct CorrelationPair {
 /// time grid (FR-3.6). Requires at least 2 symbols.
 pub fn correlation_matrix(
     conn: &Connection,
+    exchange: &str,
     symbols: &[Symbol],
     interval: Interval,
 ) -> Result<Vec<CorrelationPair>, AnalyticsError> {
@@ -35,7 +36,8 @@ pub fn correlation_matrix(
 
     let interval_str = interval.as_str();
     let symbol_strs: Vec<&str> = symbols.iter().map(Symbol::as_str).collect();
-    let params: Vec<&dyn duckdb::ToSql> = std::iter::once(&interval_str as &dyn duckdb::ToSql)
+    let params: Vec<&dyn duckdb::ToSql> = std::iter::once(&exchange as &dyn duckdb::ToSql)
+        .chain(std::iter::once(&interval_str as &dyn duckdb::ToSql))
         .chain(symbol_strs.iter().map(|s| s as &dyn duckdb::ToSql))
         .collect();
     let mut rows = stmt.query(duckdb::params_from_iter(params))?;
@@ -104,7 +106,7 @@ mod tests {
             Symbol::new("ETHUSDT").unwrap(),
             Symbol::new("SOLUSDT").unwrap(),
         ];
-        let pairs = correlation_matrix(&conn, &symbols, Interval::OneDay).unwrap();
+        let pairs = correlation_matrix(&conn, "binance", &symbols, Interval::OneDay).unwrap();
         assert_eq!(pairs.len(), 3);
 
         let find = |a: &str, b: &str| {
@@ -122,6 +124,6 @@ mod tests {
     fn rejects_fewer_than_two_symbols() {
         let conn = setup();
         let symbols = vec![Symbol::new("BTCUSDT").unwrap()];
-        assert!(correlation_matrix(&conn, &symbols, Interval::OneDay).is_err());
+        assert!(correlation_matrix(&conn, "binance", &symbols, Interval::OneDay).is_err());
     }
 }
