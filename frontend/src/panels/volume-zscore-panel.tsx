@@ -1,6 +1,6 @@
 import { createQuery } from '@tanstack/solid-query'
 import { IndicatorPanel } from '../charts/indicator-panel'
-import { cssToken } from '../charts/theme'
+import { themedCssToken } from '../charts/theme'
 import { fetchAnomalies } from '../api/endpoints'
 import type { Interval } from '../api/types'
 
@@ -28,6 +28,7 @@ export function VolumeZScorePanel(props: VolumeZScorePanelProps) {
         { signal },
       ),
   }))
+  const seriesColor = themedCssToken('--color-accent')
 
   return (
     <IndicatorPanel
@@ -36,7 +37,7 @@ export function VolumeZScorePanel(props: VolumeZScorePanelProps) {
       series={[
         {
           label: 'z-score',
-          color: cssToken('--color-accent'),
+          color: seriesColor(),
           values: (query.data ?? []).map((a) => a.zScore),
           style: 'points',
         },

@@ -10,6 +10,7 @@ import {
   Suspense,
 } from 'solid-js'
 import { createQuery } from '@tanstack/solid-query'
+import Download from 'lucide-solid/icons/download'
 import { PriceChart } from './charts/price-chart'
 import { fetchOhlcv, fetchVwap } from './api/endpoints'
 import type { OhlcvRow } from './api/types'
@@ -32,6 +33,7 @@ const TradeTape = lazy(() => import('./panels/trade-tape'))
 import { StatusBar } from './panels/status-bar'
 import { IntervalSwitcher } from './ui/interval-switcher'
 import { ToggleCheckbox } from './ui/toggle-checkbox'
+import { ThemeControls } from './ui/theme-toggle'
 import { ChartSkeleton, PanelSkeleton } from './ui/skeleton'
 import { Tabs } from './ui/tabs'
 import { interval, setInterval, setSymbol, symbol } from './state/selection'
@@ -157,6 +159,13 @@ export function App() {
   document.addEventListener('keydown', onGlobalKeyDown)
   onCleanup(() => document.removeEventListener('keydown', onGlobalKeyDown))
 
+  // NFR-2.6: dynamically imported — `export/csv.ts`'s own comment has the
+  // full reasoning. Only ever reached by an explicit click.
+  async function exportCsv() {
+    const { buildOhlcvCsv, downloadCsv } = await import('./export/csv')
+    downloadCsv(`${symbol()}_${interval()}.csv`, buildOhlcvCsv(chartData()))
+  }
+
   return (
     <div class="flex h-screen min-w-[1280px] flex-col bg-[var(--color-bg)]">
       <header class="flex flex-wrap items-center gap-4 border-b border-[var(--color-border)] px-4 py-2">
@@ -195,6 +204,17 @@ export function App() {
             onChange={() => toggleIndicator('correlation')}
           />
         </div>
+        <ThemeControls />
+        <button
+          type="button"
+          onClick={() => void exportCsv()}
+          disabled={chartData().length === 0}
+          title="Экспорт загруженных свечей в CSV"
+          class="ml-auto flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-2 py-1 text-sm text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-fg)] disabled:pointer-events-none disabled:opacity-40"
+        >
+          <Download size={14} />
+          CSV
+        </button>
       </header>
 
       <StatusBar

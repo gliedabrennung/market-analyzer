@@ -17,6 +17,7 @@ dist-ssr
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+/.lighthouseci/
 
 # Editor directories and files
 .vscode/*

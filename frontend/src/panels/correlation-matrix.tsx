@@ -11,10 +11,18 @@ const DEFAULT_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT']
 /** `ApiLimits.max_correlation_symbols` on the backend (crates/api/src/state.rs). */
 const MAX_SYMBOLS = 10
 
-function correlationColor(value: number | null): string {
+/** NFR-3.2: capped at 50%, not 100% — `--color-fg` text on a *pure*
+ * `--color-up`/`--color-down` cell fails 4.5:1 contrast in every
+ * light/dark × normal/colorblind combination (measured against all four
+ * palettes in `tokens.css`; worst case 1.56:1). 50% is the highest blend
+ * that still clears 4.5:1 in all four, so a correlation of exactly ±1
+ * still passes at the visual extreme, not just in the common case. */
+const MAX_BLEND_PCT = 50
+
+export function correlationColor(value: number | null): string {
   if (value === null) return 'var(--color-surface-2)'
   const token = value >= 0 ? '--color-up' : '--color-down'
-  const pct = Math.round(Math.abs(value) * 100)
+  const pct = Math.round(Math.abs(value) * MAX_BLEND_PCT)
   return `color-mix(in srgb, var(${token}) ${pct}%, var(--color-surface))`
 }
 

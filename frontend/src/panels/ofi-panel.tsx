@@ -1,7 +1,7 @@
 import { createMemo } from 'solid-js'
 import { createQuery } from '@tanstack/solid-query'
 import { IndicatorPanel } from '../charts/indicator-panel'
-import { cssToken } from '../charts/theme'
+import { themedCssToken } from '../charts/theme'
 import { fetchOfi } from '../api/endpoints'
 
 export interface OfiPanelProps {
@@ -32,14 +32,13 @@ export function OfiPanel(props: OfiPanelProps) {
         { signal },
       ),
   }))
+  const seriesColor = themedCssToken('--color-accent')
 
   return (
     <IndicatorPanel
       title={`OFI (последние ${LOOKBACK_HOURS}ч)`}
       times={(query.data ?? []).map((b) => b.bucket / 1000)}
-      series={[
-        { label: 'ofi', color: cssToken('--color-accent'), values: (query.data ?? []).map((b) => b.ofi) },
-      ]}
+      series={[{ label: 'ofi', color: seriesColor(), values: (query.data ?? []).map((b) => b.ofi) }]}
     />
   )
 }

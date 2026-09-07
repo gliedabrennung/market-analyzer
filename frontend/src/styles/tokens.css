@@ -3,9 +3,9 @@
  * the Tailwind utilities `@theme` below generates from the same
  * properties) — no hardcoded hex in component code.
  *
- * Dark is the default and only theme implemented so far (DR-1); a
- * `[data-theme="light"]` override block is Этап 5 scope, built on these
- * same property names.
+ * Dark is the default (DR-1). `[data-theme="light"]`/`[data-palette
+ * ="colorblind"]` below override the same property names — set on
+ * `<html>` by `state/theme.ts` (FR-8.4: persisted in `localStorage`).
  */
 @theme {
   --color-bg: #0b0e14;
@@ -14,10 +14,15 @@
   --color-border: #262d3a;
   --color-fg: #e6e9ef;
   --color-fg-muted: #8b93a7;
-  --color-accent: #4f8cff;
+  /* NFR-3.2: this is the background half of the white-text buttons in
+   * IntervalSwitcher/SymbolPicker/TradeTape (`bg-accent text-white`) — the
+   * original #4f8cff only hit 3.22:1 there (measured), below the 4.5:1
+   * text minimum. #2f6fed clears it (4.55:1) and is used unchanged for
+   * the light theme below, so light/dark share one accent hue. */
+  --color-accent: #2f6fed;
 
   /* DR-4: rise/fall are semantic tokens, never referenced as "green/red"
-   * in component code — so the colorblind-safe alt palette (Этап 5) is a
+   * in component code — so the colorblind-safe alt palette below is a
    * token swap, not a find-and-replace. */
   --color-up: #26a69a;
   --color-down: #ef5350;
@@ -27,4 +32,37 @@
 
   --radius-sm: 4px;
   --radius-md: 8px;
+}
+
+/* All four palettes below were checked against NFR-3.2 (≥4.5:1 for normal
+ * text) with the WCAG relative-luminance formula, for every place a token
+ * is actually used as text/background text pairing in this codebase —
+ * including the correlation heatmap (`panels/correlation-matrix.tsx`),
+ * which is why `correlationColor()` caps its `color-mix()` blend at 50%
+ * rather than 100%: at full saturation, `--color-fg` text on a pure
+ * `--color-up`/`--color-down` cell fails contrast in every one of these
+ * four palettes (worst case measured: 1.56:1), and 50% is the highest
+ * blend that still clears 4.5:1 in all four.
+ */
+[data-theme='light'] {
+  --color-bg: #f5f6f8;
+  --color-surface: #ffffff;
+  --color-surface-2: #eceff3;
+  --color-border: #d7dbe3;
+  --color-fg: #1a1d24;
+  --color-fg-muted: #5b6272;
+  --color-up: #0a7568;
+  --color-down: #c23636;
+}
+
+/* DR-4: colorblind-safe alternative (blue/orange instead of green/red),
+ * independent of the light/dark choice above — composes with either. */
+[data-palette='colorblind'] {
+  --color-up: #4fb3ff;
+  --color-down: #ffa94d;
+}
+
+[data-theme='light'][data-palette='colorblind'] {
+  --color-up: #0a5da8;
+  --color-down: #a2540a;
 }

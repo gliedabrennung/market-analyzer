@@ -25,6 +25,16 @@ export default defineConfig({
       name: 'chromium-perf',
       use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4173' },
       testMatch: '**/perf.spec.ts',
+      // Every test here measures wall-clock time or frame timing
+      // (NFR-1.3/1.4/1.5) — running them as several concurrent worker
+      // processes puts them in CPU contention with each other and
+      // inflates every measurement (reproduced: NFR-1.3 alone measured
+      // ~90ms, but measured 406ms — over its own 200ms budget — once 4
+      // of this file's tests ran as parallel workers on the same
+      // machine). `fullyParallel: false` makes this one file run
+      // sequentially in a single worker; the `chromium` project above is
+      // unaffected and still runs fully parallel.
+      fullyParallel: false,
     },
   ],
   webServer: [

@@ -1,6 +1,6 @@
 import { createQuery } from '@tanstack/solid-query'
 import { IndicatorPanel } from '../charts/indicator-panel'
-import { cssToken } from '../charts/theme'
+import { themedCssToken } from '../charts/theme'
 import { fetchVolatility } from '../api/endpoints'
 import type { Interval } from '../api/types'
 
@@ -18,6 +18,7 @@ export function VolatilityPanel(props: VolatilityPanelProps) {
     queryFn: ({ signal }) =>
       fetchVolatility({ symbol: props.symbol, interval: props.interval, window: WINDOW }, { signal }),
   }))
+  const seriesColor = themedCssToken('--color-accent')
 
   return (
     <IndicatorPanel
@@ -26,7 +27,7 @@ export function VolatilityPanel(props: VolatilityPanelProps) {
       series={[
         {
           label: 'volatility',
-          color: cssToken('--color-accent'),
+          color: seriesColor(),
           values: (query.data ?? []).map((p) => p.realizedVolatility),
         },
       ]}

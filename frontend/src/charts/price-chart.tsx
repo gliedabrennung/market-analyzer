@@ -1,4 +1,4 @@
-import { createEffect, onCleanup, onMount } from 'solid-js'
+import { createEffect, on, onCleanup, onMount } from 'solid-js'
 import { unwrap } from 'solid-js/store'
 import {
   CandlestickSeries,
@@ -18,6 +18,7 @@ import type { OhlcvRow, VwapPoint } from '../api/types'
 import { simpleMovingAverage } from './indicators'
 import { cssToken } from './theme'
 import { origin, publishVisibleRange, trackUserGestures, visibleRange } from './sync'
+import { colorblindPalette, theme } from '../state/theme'
 
 const MA_WINDOW = 20
 /** FR-3.5: trigger an earlier-history fetch once the visible window gets
@@ -99,6 +100,7 @@ export function PriceChart(props: PriceChartProps) {
   let vwapSeries: ISeriesApi<'Line'> | undefined
   let maSeries: ISeriesApi<'Line'> | undefined
   let markers: ISeriesMarkersPluginApi<Time> | undefined
+  let lastMarkerTime: UTCTimestamp | undefined
   let applyingExternalRange = false
   let previousRowCount = 0
   let previousLastOpenTime: number | undefined
@@ -312,6 +314,7 @@ export function PriceChart(props: PriceChartProps) {
     if (target == null || chart === undefined || markers === undefined) return
 
     const timeSec = Math.floor(target.time / 1000) as UTCTimestamp
+    lastMarkerTime = timeSec
     markers.setMarkers([
       { time: timeSec, position: 'aboveBar', shape: 'arrowDown', color: cssToken('--color-down'), size: 1.5 },
     ])
@@ -340,6 +343,51 @@ export function PriceChart(props: PriceChartProps) {
     if (props.resetZoomNonce === undefined || chart === undefined) return
     chart.timeScale().fitContent()
   })
+
+  // Этап 5 (DR-1/DR-4): re-paint already-created series when the theme or
+  // colorblind palette changes. Lightweight Charts bakes resolved color
+  // *strings* into the chart/series at creation time (`cssToken` above is
+  // a one-shot `getComputedStyle` read, not a live binding) — flipping
+  // the `data-theme`/`data-palette` attribute alone repaints nothing.
+  // `on(..., { defer: true })` skips the initial run: without it, this
+  // would fire once right after `onMount` with the same colors it was
+  // just created with — harmless, but pointless work on every mount.
+  createEffect(
+    on(
+      [theme, colorblindPalette],
+      () => {
+        if (chart === undefined || candleSeries === undefined || volumeSeries === undefined) return
+
+        const upColor = cssToken('--color-up')
+        const downColor = cssToken('--color-down')
+
+        chart.applyOptions({
+          layout: {
+            background: { type: ColorType.Solid, color: cssToken('--color-surface') },
+            textColor: cssToken('--color-fg'),
+          },
+          grid: {
+            vertLines: { color: cssToken('--color-border') },
+            horzLines: { color: cssToken('--color-border') },
+          },
+        })
+        candleSeries.applyOptions({ upColor, downColor, wickUpColor: upColor, wickDownColor: downColor })
+        volumeSeries.setData(unwrap(props.data).map((row) => toVolumePoint(row, upColor, downColor)))
+        vwapSeries?.applyOptions({ color: cssToken('--color-accent') })
+        maSeries?.applyOptions({ color: cssToken('--color-fg-muted') })
+
+        // The highlight marker's color was fixed at click time (FR-5.3);
+        // if one is currently showing, refresh it too rather than leave
+        // it in the old theme's color until the next jump.
+        if (lastMarkerTime !== undefined) {
+          markers?.setMarkers([
+            { time: lastMarkerTime, position: 'aboveBar', shape: 'arrowDown', color: downColor, size: 1.5 },
+          ])
+        }
+      },
+      { defer: true },
+    ),
+  )
 
   return <div ref={container} data-testid="price-chart" class="h-full w-full" />
 }

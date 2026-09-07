@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.e2e.tsbuildinfo",
+    "target": "es2023",
+    /* Unlike tsconfig.node.json's other files (vite/vitest/playwright
+     * config, which run in Node only), these spec files also contain
+     * `page.evaluate(() => ...)` callback *source text* that TypeScript
+     * checks as if it ran here — but it actually runs inside the browser
+     * page Playwright drives. Needs DOM in `lib` for `window`,
+     * `requestAnimationFrame`, etc. to resolve there. */
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"],
+    "skipLibCheck": true,
+
+    "module": "nodenext",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["tests/e2e/**/*.ts"]
+}

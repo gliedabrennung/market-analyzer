@@ -38,6 +38,13 @@ export function IndicatorPanel(props: IndicatorPanelProps) {
   let plot: uPlot | undefined
   let applyingExternalRange = false
   let wasRecentUserGesture: () => boolean = () => false
+  // Seeded from the initial props (not `[]`) so the first run of the
+  // color-diff effect below sees "unchanged" and just calls `setData` —
+  // `onMount` has already constructed the plot with these exact colors.
+  // Deliberately a one-time read, not tracked: this is component-setup
+  // state, not a value that should react to later prop changes on its own.
+  // eslint-disable-next-line solid/reactivity
+  let previousColors = props.series.map((s) => s.color)
 
   function toAlignedData(): uPlot.AlignedData {
     return [props.times, ...props.series.map((s) => s.values)]
@@ -97,8 +104,30 @@ export function IndicatorPanel(props: IndicatorPanelProps) {
     })
   })
 
+  // uPlot bakes `stroke`/axis colors into the instance at construction —
+  // there's no public "restyle" API, so a genuine color change (e.g. a
+  // theme/colorblind-palette flip upstream re-deriving `props.series[].
+  // color`, see `state/theme.ts`) needs a full destroy+recreate, not
+  // `setData()`. Colors are the *only* thing that forces this: recreating
+  // on every ordinary data update (query refetch, live tick) would be
+  // needlessly expensive and would flash the panel for no visual reason.
   createEffect(() => {
-    plot?.setData(toAlignedData())
+    const colors = props.series.map((s) => s.color)
+    const colorsChanged =
+      colors.length !== previousColors.length || colors.some((c, i) => c !== previousColors[i])
+    previousColors = colors
+
+    if (plot === undefined || container === undefined) return
+    if (colorsChanged) {
+      plot.destroy()
+      plot = new uPlot(
+        buildOptions(container.clientWidth, props.height ?? DEFAULT_HEIGHT),
+        toAlignedData(),
+        container,
+      )
+    } else {
+      plot.setData(toAlignedData())
+    }
   })
 
   createEffect(() => {
