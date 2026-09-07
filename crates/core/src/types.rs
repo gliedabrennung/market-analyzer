@@ -133,7 +133,14 @@ pub struct DepthUpdate {
 }
 
 /// Normalized live-stream event, exchange-independent (FR-1.6).
+///
+/// `#[serde(tag = "type")]` is only load-bearing for `ma_api`'s WS proxy
+/// (`crates/api/src/routes/stream_ws.rs`) — the only place this is ever
+/// JSON-(de)serialized; everywhere else it's matched directly as a Rust
+/// enum. Gives `{"type": "trade", ...fields}` / `{"type": "kline", ...}` /
+/// `{"type": "depth_update", ...}`, per frontend-tz.md BE-5.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum MarketEvent {
     Trade(Trade),
     Kline(Kline),

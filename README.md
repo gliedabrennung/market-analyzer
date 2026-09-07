@@ -144,7 +144,7 @@ market-analyzer serve [--port 8080]
 | GET | `/analytics/{symbol}/anomalies` | `interval`, `window`, `threshold`, `limit`, `offset` |
 | GET | `/analytics/{symbol}/ofi` | `bucket`, `from`, `to`, `limit`, `offset` |
 | GET | `/analytics/correlation` | `symbols` (через запятую, максимум 10 — расчёт O(n²)), `interval` |
-| WS | `/stream/{symbol}` | проброс живых сделок |
+| WS | `/stream/{symbol}` | `interval` (по умолчанию `1m`) — проброс живых сделок и klines |
 | GET | `/metrics` | Prometheus-метрики (FR-6.3) |
 
 `/ohlcv/*` и `/analytics/*` отдают Apache Arrow IPC stream при
@@ -152,6 +152,11 @@ market-analyzer serve [--port 8080]
 без этого заголовка — обычный JSON (FR-1.2). Decimal-поля (цены, объёмы) в
 Arrow-колонках — `Utf8`, не float (frontend-tz.md §2.3): точность не
 теряется при сериализации.
+
+`WS /stream/{symbol}` шлёт JSON с полем `type` (`trade` / `kline` /
+`heartbeat`, не реже раза в 20 с — frontend-tz.md BE-5) — `ma_core::MarketEvent`
+сериализуется с `#[serde(tag = "type")]`; подписка идёт сразу на `Trade` и
+`Kline(interval)`.
 
 `from`/`to` — `YYYY-MM-DD` или RFC3339. Ошибки — всегда
 `{"error":{"code","message","details"}}` (FR-5.2): `400` — невалидные
@@ -209,8 +214,8 @@ frontend/      # веб-дашборд (SolidJS+Vite+Arrow), ТЗ и стату�
   показал здоровый профиль (~105 МБ из бюджета 512 МБ), но это не то же
   самое, что 12 часов.
 - Контракт с фронтендом (`frontend-tz.md` §7) реализован частично: BE-1
-  (Arrow IPC) и BE-2 (CORS) готовы. BE-3 (кэш-заголовки), BE-5 (`type` в
-  WS-сообщениях), BE-6 (`price_precision`/`qty_precision` в `/symbols`) —
+  (Arrow IPC), BE-2 (CORS) и BE-5 (`type`+heartbeat в WS) готовы. BE-3
+  (кэш-заголовки), BE-6 (`price_precision`/`qty_precision` в `/symbols`) —
   ещё нет, добавляются по мере необходимости фронтенду.
 - `vwap`, `volatility` и `anomalies` (CLI и HTTP) сканируют всю историю
   символа/интервала под своим скользящим окном — `from`/`to` для них не

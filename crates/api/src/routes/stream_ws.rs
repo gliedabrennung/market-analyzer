@@ -1,18 +1,32 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use futures::StreamExt;
+use serde::Deserialize;
 
-use ma_core::{MarketEvent, Symbol};
+use ma_core::{Interval, MarketEvent, Symbol};
 use ma_exchanges::{ExchangeSource, StreamKind};
 
 use crate::error::{error_envelope, ApiError};
 use crate::state::AppState;
 use crate::validation;
 
-/// `WS /stream/{symbol}` (FR-5.1): proxies live trade events for `symbol`.
+/// BE-5 (frontend-tz.md §7): a heartbeat at least this often lets the
+/// client tell "quiet market" apart from "connection silently died".
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(20);
+
+#[derive(Debug, Deserialize)]
+pub struct StreamQuery {
+    pub interval: Option<String>,
+}
+
+/// `WS /stream/{symbol}` (FR-5.1): proxies live trade *and* kline events
+/// for `symbol` (`?interval=`, default `1m` — the frontend's live candle
+/// update, FR-3.3, needs the kline stream at whatever interval it's
+/// displaying, not just raw trades).
 ///
 /// This is a fresh upstream subscription per connected client (via
 /// `ma_exchanges`, independent of anything the `stream` CLI collector is
@@ -25,15 +39,25 @@ pub async fn stream_ws(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
     Path(symbol): Path<String>,
+    Query(q): Query<StreamQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let symbol = validation::validate_symbol(&state, &symbol).await?;
-    Ok(ws.on_upgrade(move |socket| handle_socket(socket, state, symbol)))
+    let interval = validation::parse_interval(q.interval.as_deref())?;
+    Ok(ws.on_upgrade(move |socket| handle_socket(socket, state, symbol, interval)))
 }
 
-async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, symbol: Symbol) {
+async fn handle_socket(
+    mut socket: WebSocket,
+    state: Arc<AppState>,
+    symbol: Symbol,
+    interval: Interval,
+) {
     let mut events = match state
         .exchange
-        .subscribe(std::slice::from_ref(&symbol), &[StreamKind::Trade])
+        .subscribe(
+            std::slice::from_ref(&symbol),
+            &[StreamKind::Trade, StreamKind::Kline(interval)],
+        )
         .await
     {
         Ok(events) => events,
@@ -46,6 +70,10 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, symbol: Symb
             return;
         }
     };
+
+    let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
+    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    heartbeat.tick().await; // first tick fires immediately; not a real interval
 
     loop {
         tokio::select! {
@@ -69,6 +97,12 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, symbol: Symb
                         tracing::warn!(symbol = %symbol, error = %e, "upstream stream error while proxying to ws client");
                     }
                     None => break,
+                }
+            }
+
+            _ = heartbeat.tick() => {
+                if socket.send(Message::Text(r#"{"type":"heartbeat"}"#.to_string())).await.is_err() {
+                    break;
                 }
             }
         }
