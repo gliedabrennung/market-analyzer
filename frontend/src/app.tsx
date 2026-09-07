@@ -7,11 +7,14 @@ import { SymbolPicker } from './panels/symbol-picker'
 import { VolatilityPanel } from './panels/volatility-panel'
 import { OfiPanel } from './panels/ofi-panel'
 import { VolumeZScorePanel } from './panels/volume-zscore-panel'
+import { TradeTape } from './panels/trade-tape'
 import { IntervalSwitcher } from './ui/interval-switcher'
 import { ToggleCheckbox } from './ui/toggle-checkbox'
 import { ChartSkeleton } from './ui/skeleton'
+import { ConnectionStatus } from './ui/connection-status'
 import { interval, setInterval, setSymbol, symbol } from './state/selection'
 import { indicatorSettings, toggleIndicator } from './state/settings'
+import { useLiveStream } from './stream/useLiveStream'
 
 const HISTORY_DAYS = 30
 const HISTORY_EXTEND_DAYS = 30
@@ -83,12 +86,21 @@ export function App() {
       fetchVwap({ symbol: symbol(), interval: interval(), window: VWAP_WINDOW }, { signal }),
   }))
 
+  // Этап 3: FR-2.1..2.5 live WS (reconnect, batching, tab-hidden pause),
+  // FR-3.3 live candle updates, FR-7.x trade tape.
+  const liveStream = useLiveStream({
+    symbol,
+    interval,
+    onResume: () => void ohlcvQuery.refetch(),
+  })
+
   return (
     <div class="flex h-screen min-w-[1280px] flex-col bg-[var(--color-bg)]">
       <header class="flex flex-wrap items-center gap-4 border-b border-[var(--color-border)] px-4 py-2">
         <h1 class="text-sm font-semibold text-[var(--color-fg)]">Market Analyzer</h1>
         <SymbolPicker value={symbol()} onSelect={setSymbol} />
         <IntervalSwitcher value={interval()} onChange={setInterval} />
+        <ConnectionStatus state={liveStream.connectionState()} />
         <div class="flex items-center gap-3 border-l border-[var(--color-border)] pl-4">
           <ToggleCheckbox
             label="VWAP"
@@ -118,53 +130,63 @@ export function App() {
         </div>
       </header>
 
-      <main class="flex min-h-0 flex-1 flex-col gap-2 p-2">
-        <ErrorBoundary
-          fallback={(error) => (
-            <div class="flex h-[55vh] items-center justify-center text-sm text-[var(--color-down)]">
-              Не удалось загрузить график: {String(error)}
-            </div>
-          )}
-        >
-          <div class="h-[55vh] min-h-0">
-            <Show when={!ohlcvQuery.isLoading} fallback={<ChartSkeleton />}>
-              <Show
-                when={(ohlcvQuery.data?.length ?? 0) > 0}
-                fallback={
-                  <div class="flex h-full items-center justify-center text-sm text-[var(--color-fg-muted)]">
-                    Нет данных по {symbol()} за последние {HISTORY_DAYS} дней
-                  </div>
-                }
-              >
-                <PriceChart
-                  data={chartData()}
-                  vwapData={vwapQuery.data}
-                  showVwap={indicatorSettings().vwap}
-                  showMa={indicatorSettings().ma}
-                  onLoadEarlier={loadEarlierHistory}
-                />
+      <main class="flex min-h-0 flex-1 flex-row">
+        <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-2">
+          <ErrorBoundary
+            fallback={(error) => (
+              <div class="flex h-[55vh] items-center justify-center text-sm text-[var(--color-down)]">
+                Не удалось загрузить график: {String(error)}
+              </div>
+            )}
+          >
+            <div class="h-[55vh] min-h-0">
+              <Show when={!ohlcvQuery.isLoading} fallback={<ChartSkeleton />}>
+                <Show
+                  when={(ohlcvQuery.data?.length ?? 0) > 0}
+                  fallback={
+                    <div class="flex h-full items-center justify-center text-sm text-[var(--color-fg-muted)]">
+                      Нет данных по {symbol()} за последние {HISTORY_DAYS} дней
+                    </div>
+                  }
+                >
+                  <PriceChart
+                    data={chartData()}
+                    vwapData={vwapQuery.data}
+                    showVwap={indicatorSettings().vwap}
+                    showMa={indicatorSettings().ma}
+                    liveKline={liveStream.liveKline()}
+                    onLoadEarlier={loadEarlierHistory}
+                  />
+                </Show>
               </Show>
-            </Show>
-          </div>
-        </ErrorBoundary>
+            </div>
+          </ErrorBoundary>
 
-        <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-          <ErrorBoundary fallback={(error) => <PanelError error={error} />}>
-            <Show when={indicatorSettings().volatility}>
-              <VolatilityPanel symbol={symbol()} interval={interval()} />
-            </Show>
-          </ErrorBoundary>
-          <ErrorBoundary fallback={(error) => <PanelError error={error} />}>
-            <Show when={indicatorSettings().ofi}>
-              <OfiPanel symbol={symbol()} />
-            </Show>
-          </ErrorBoundary>
-          <ErrorBoundary fallback={(error) => <PanelError error={error} />}>
-            <Show when={indicatorSettings().anomalies}>
-              <VolumeZScorePanel symbol={symbol()} interval={interval()} />
-            </Show>
-          </ErrorBoundary>
+          <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+            <ErrorBoundary fallback={(error) => <PanelError error={error} />}>
+              <Show when={indicatorSettings().volatility}>
+                <VolatilityPanel symbol={symbol()} interval={interval()} />
+              </Show>
+            </ErrorBoundary>
+            <ErrorBoundary fallback={(error) => <PanelError error={error} />}>
+              <Show when={indicatorSettings().ofi}>
+                <OfiPanel symbol={symbol()} />
+              </Show>
+            </ErrorBoundary>
+            <ErrorBoundary fallback={(error) => <PanelError error={error} />}>
+              <Show when={indicatorSettings().anomalies}>
+                <VolumeZScorePanel symbol={symbol()} interval={interval()} />
+              </Show>
+            </ErrorBoundary>
+          </div>
         </div>
+
+        {/* DR-7: side column — trade tape now, anomalies table joins it in Этап 4. */}
+        <aside class="w-72 shrink-0 border-l border-[var(--color-border)] p-2">
+          <ErrorBoundary fallback={(error) => <PanelError error={error} />}>
+            <TradeTape trades={liveStream.trades()} />
+          </ErrorBoundary>
+        </aside>
       </main>
     </div>
   )

@@ -27,6 +27,12 @@ export interface PriceChartProps {
   vwapData?: VwapPoint[]
   showVwap?: boolean
   showMa?: boolean
+  /** FR-3.3/Этап 3: the latest live kline for the current bar (open or
+   * just-closed), applied via `series.update()` — never `setData()`, so a
+   * 1000 msg/sec live feed (NFR-1.5) doesn't re-diff/re-render the whole
+   * series on every tick. `null`/`undefined`: no live tick applied yet
+   * (e.g. freshly connected, or the historical load hasn't landed yet). */
+  liveKline?: OhlcvRow | null
   /** FR-3.5: called when the user has scrolled near the left edge of the
    * loaded data; the parent is responsible for fetching and prepending
    * more history to `data`. Never called again while a call is already
@@ -71,9 +77,9 @@ function toMaSeries(rows: OhlcvRow[]) {
  * Lightweight Charts defaults. FR-3.4: optional VWAP/MA(20) line overlays.
  * FR-3.5: scrolling near the left edge asks the parent for more history.
  * FR-4.2: this chart's visible range is published to/synced from every
- * other chart via `./sync`. FR-3.3's incremental-update path
- * (`series.update()` for the live last bar) lands in Этап 3 — this
- * component only does the full-series `setData()` load path so far. */
+ * other chart via `./sync`. FR-3.3: `props.liveKline` updates the last
+ * bar via `series.update()`, entirely separate from the historical
+ * `props.data` → `setData()` path below. */
 export function PriceChart(props: PriceChartProps) {
   const chartId = Symbol('price-chart')
   let container: HTMLDivElement | undefined
@@ -250,6 +256,28 @@ export function PriceChart(props: PriceChartProps) {
     requestAnimationFrame(() => {
       maSeries?.setData(toMaSeries(rows))
     })
+  })
+
+  // FR-3.3/Этап 3: the live path. `update()` both revises the in-progress
+  // last bar (repeated calls with the same `time`) and appends a new one
+  // once the interval rolls over (a later `time`) — either way, no
+  // re-render of the rest of the series. Guarded against firing before
+  // the first historical `setData()` (a live tick can technically arrive
+  // before the REST load resolves) and against an out-of-order tick
+  // (older than the bar the chart already shows) — Lightweight Charts
+  // throws on a `time` earlier than what's already in the series.
+  createEffect(() => {
+    const live = props.liveKline
+    if (live === null || live === undefined) return
+    if (candleSeries === undefined || volumeSeries === undefined) return
+    if (previousRowCount === 0) return
+    if (previousLastOpenTime !== undefined && live.openTime < previousLastOpenTime) return
+
+    const upColor = cssToken('--color-up')
+    const downColor = cssToken('--color-down')
+    candleSeries.update(toCandlestickPoint(live))
+    volumeSeries.update(toVolumePoint(live, upColor, downColor))
+    previousLastOpenTime = live.openTime
   })
 
   createEffect(() => {
