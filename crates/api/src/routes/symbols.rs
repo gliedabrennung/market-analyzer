@@ -14,20 +14,30 @@ pub struct SymbolDto {
     pub base_asset: String,
     pub quote_asset: String,
     pub status: String,
+    /// Whether anything has ever been collected for this symbol. The
+    /// registry is the exchange's full pair list (thousands of entries,
+    /// most of them delisted), so without this a client cannot tell which
+    /// of them will return candles and which will just render empty.
+    pub has_data: bool,
 }
 
 /// `GET /symbols` (FR-5.1): the registry populated by `symbols --refresh`.
 pub async fn list_symbols(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<SymbolDto>>, ApiError> {
-    let records = state
+    let (records, with_data) = state
         .pool
-        .with_meta(|meta| meta.list_symbols().map_err(ApiError::from))
+        .with_meta(|meta| {
+            let records = meta.list_symbols()?;
+            let with_data = meta.symbols_with_data()?;
+            Ok((records, with_data))
+        })
         .await?;
     Ok(Json(
         records
             .into_iter()
             .map(|r| SymbolDto {
+                has_data: with_data.contains(&r.symbol),
                 exchange: r.exchange,
                 symbol: r.symbol,
                 base_asset: r.base_asset,

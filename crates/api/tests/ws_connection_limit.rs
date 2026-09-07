@@ -42,7 +42,7 @@ async fn serve_with_ws_limit(
         .expect("seeding symbol registry");
     }
 
-    let pool = DbPool::new(&meta_path, 2).expect("opening db pool");
+    let pool = DbPool::new(&meta_path, dir.path(), 2).expect("opening db pool");
     let exchange = BinanceSpot::new(BinanceConfig::default()).expect("building exchange client");
     let app = build_app(
         pool,

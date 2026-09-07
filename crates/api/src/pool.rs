@@ -14,16 +14,23 @@ use crate::error::ApiError;
 /// async executor — and returned to the channel afterward.
 pub struct DbPool {
     meta_db_path: PathBuf,
+    data_root: PathBuf,
     tx: mpsc::Sender<MetaStore>,
     rx: Mutex<mpsc::Receiver<MetaStore>>,
 }
 
 impl DbPool {
-    /// Opens `size` (at least 1) independent read-only handles on `meta_db_path`.
-    pub fn new(meta_db_path: impl AsRef<Path>, size: usize) -> Result<Self, ApiError> {
+    /// Opens `size` (at least 1) independent read-only handles on
+    /// `meta_db_path`. `data_root` is the Parquet directory each handle
+    /// builds its own views over — see `MetaStore::ensure_views`.
+    pub fn new(
+        meta_db_path: impl AsRef<Path>,
+        data_root: impl AsRef<Path>,
+        size: usize,
+    ) -> Result<Self, ApiError> {
         let (tx, rx) = mpsc::channel(size.max(1));
         for _ in 0..size.max(1) {
-            let store = MetaStore::open_read_only(meta_db_path.as_ref())
+            let store = MetaStore::open_read_only(meta_db_path.as_ref(), data_root.as_ref())
                 .map_err(|e| ApiError::Internal(format!("opening db pool connection: {e}")))?;
             tx.try_send(store).map_err(|_| {
                 ApiError::Internal("db pool channel capacity exceeded during init".to_string())
@@ -31,6 +38,7 @@ impl DbPool {
         }
         Ok(Self {
             meta_db_path: meta_db_path.as_ref().to_path_buf(),
+            data_root: data_root.as_ref().to_path_buf(),
             tx,
             rx: Mutex::new(rx),
         })
@@ -50,7 +58,15 @@ impl DbPool {
         };
         let tx = self.tx.clone();
         let joined = tokio::task::spawn_blocking(move || {
-            let result = f(&store);
+            // A dataset that had no Parquet files when this handle was
+            // opened has no view yet; `serve` outlives the first `backfill`
+            // that creates one, so the check has to happen per use rather
+            // than once at startup. It costs a set lookup once both views
+            // exist.
+            let result = store
+                .ensure_views()
+                .map_err(ApiError::from)
+                .and_then(|()| f(&store));
             (store, result)
         })
         .await;
@@ -72,7 +88,9 @@ impl DbPool {
                 // every caller on `rx.recv()`.
                 if join_error.is_panic() {
                     tracing::error!(error = %join_error, "db pool worker panicked, replenishing pool slot");
-                    if let Ok(fresh) = MetaStore::open_read_only(&self.meta_db_path) {
+                    if let Ok(fresh) =
+                        MetaStore::open_read_only(&self.meta_db_path, &self.data_root)
+                    {
                         let _ = tx.try_send(fresh);
                     }
                 }

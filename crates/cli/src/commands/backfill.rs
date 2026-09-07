@@ -77,8 +77,8 @@ pub async fn run(args: BackfillArgs, config: &AppConfig) -> Result<()> {
             // then — and `serve` (read-only) can never create it. Without
             // this, the first backfill's data stays invisible to the API
             // until some unrelated later write reopens the store.
-            meta.refresh_views(&config.data_dir)
-                .context("refreshing meta.duckdb views over the new Parquet files")?;
+            meta.ensure_views()
+                .context("creating meta.duckdb views over the new Parquet files")?;
         }
 
         if let Some(max_open) = klines.iter().map(|k| k.open_time).max() {

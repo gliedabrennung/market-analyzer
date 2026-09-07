@@ -31,7 +31,7 @@ async fn sustains_100_rps_on_ohlcv_without_growing_errors() {
         meta_db_path.display()
     );
 
-    let pool = DbPool::new(&meta_db_path, 8).expect("opening db pool");
+    let pool = DbPool::new(&meta_db_path, "../../data", 8).expect("opening db pool");
     let exchange = BinanceSpot::new(BinanceConfig::default()).expect("building exchange client");
     let limits = ApiLimits {
         max_date_range_days: 366,

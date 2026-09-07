@@ -29,6 +29,10 @@ export interface SymbolInfo {
   baseAsset: string
   quoteAsset: string
   status: string
+  /** Whether the backend has ever collected data for this pair. The
+   * registry lists every pair the exchange knows, most of which would
+   * render an empty chart. */
+  hasData: boolean
   pricePrecision?: number
   qtyPrecision?: number
 }
@@ -41,6 +45,7 @@ export interface SymbolInfoWire {
   base_asset: string
   quote_asset: string
   status: string
+  has_data: boolean
   price_precision?: number
   qty_precision?: number
 }

@@ -209,6 +209,7 @@ export async function fetchSymbols(options?: FetchRowsOptions): Promise<SymbolIn
     baseAsset: s.base_asset,
     quoteAsset: s.quote_asset,
     status: s.status,
+    hasData: s.has_data ?? false,
     pricePrecision: s.price_precision,
     qtyPrecision: s.qty_precision,
   }))

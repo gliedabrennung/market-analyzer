@@ -11,8 +11,12 @@ use super::ServeArgs;
 /// is `axum`'s own `with_graceful_shutdown`, which stops accepting new
 /// connections and waits for in-flight ones to finish.
 pub async fn run(args: ServeArgs, config: &AppConfig) -> Result<()> {
-    let pool = DbPool::new(&config.meta_db_path, config.api_db_pool_size)
-        .context("opening API database pool")?;
+    let pool = DbPool::new(
+        &config.meta_db_path,
+        &config.data_dir,
+        config.api_db_pool_size,
+    )
+    .context("opening API database pool")?;
 
     let exchange = BinanceSpot::new(BinanceConfig {
         base_url: config.binance_base_url.clone(),

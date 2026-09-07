@@ -2,8 +2,22 @@ import { expect, test } from '@playwright/test'
 import { buildAnomaliesArrowIpc, buildOhlcvArrowIpc, makeFixtureCandles } from './fixtures.ts'
 
 const SYMBOLS_JSON = [
-  { exchange: 'binance', symbol: 'BTCUSDT', base_asset: 'BTC', quote_asset: 'USDT', status: 'TRADING' },
-  { exchange: 'binance', symbol: 'ETHUSDT', base_asset: 'ETH', quote_asset: 'USDT', status: 'TRADING' },
+  {
+    exchange: 'binance',
+    symbol: 'BTCUSDT',
+    base_asset: 'BTC',
+    quote_asset: 'USDT',
+    status: 'TRADING',
+    has_data: true,
+  },
+  {
+    exchange: 'binance',
+    symbol: 'ETHUSDT',
+    base_asset: 'ETH',
+    quote_asset: 'USDT',
+    status: 'TRADING',
+    has_data: true,
+  },
 ]
 
 const candles = makeFixtureCandles(200)

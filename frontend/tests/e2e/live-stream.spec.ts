@@ -2,7 +2,14 @@ import { expect, test } from '@playwright/test'
 import { buildOhlcvArrowIpc, makeFixtureCandles } from './fixtures.ts'
 
 const SYMBOLS_JSON = [
-  { exchange: 'binance', symbol: 'BTCUSDT', base_asset: 'BTC', quote_asset: 'USDT', status: 'TRADING' },
+  {
+    exchange: 'binance',
+    symbol: 'BTCUSDT',
+    base_asset: 'BTC',
+    quote_asset: 'USDT',
+    status: 'TRADING',
+    has_data: true,
+  },
 ]
 
 test.beforeEach(async ({ page }) => {

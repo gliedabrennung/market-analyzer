@@ -23,7 +23,7 @@ pub fn run(args: QueryArgs, config: &AppConfig) -> Result<()> {
     let params: HashMap<String, String> = args.params.into_iter().collect();
     let symbol = Symbol::new(&args.symbol).map_err(|e| anyhow::anyhow!("--symbol: {e}"))?;
 
-    let meta = MetaStore::open_read_only(&config.meta_db_path)
+    let meta = MetaStore::open_read_only(&config.meta_db_path, &config.data_dir)
         .context("opening meta.duckdb for reading")?;
     let conn = meta.connection();
 

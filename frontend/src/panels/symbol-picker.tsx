@@ -3,6 +3,11 @@ import { createQuery } from '@tanstack/solid-query'
 import { fetchSymbols } from '../api/endpoints'
 import { recentSymbols, pushRecentSymbol } from '../state/recent-symbols'
 
+/** The list is scrollable (`max-h-64`), so this only bounds how much DOM
+ * one keystroke rebuilds — not what the user can reach, which is what
+ * typing is for. */
+const MAX_OPTIONS = 50
+
 export interface SymbolPickerProps {
   value: string
   onSelect: (symbol: string) => void
@@ -22,20 +27,37 @@ export function SymbolPicker(props: SymbolPickerProps) {
     staleTime: Infinity,
   }))
 
+  /** The registry is the exchange's entire pair list: ~3700 entries, most
+   * of them long delisted (`status` other than `TRADING`), and only the
+   * handful that were actually collected can draw a chart. Listing it raw
+   * and alphabetically meant the dropdown opened on `0GBNB, 1000CATBNB,
+   * 1INCHDOWNUSDT…` — nothing a person would pick — and every second pick
+   * landed on a symbol with no data, which looks exactly like a broken
+   * app. Delisted pairs are dropped, collected ones come first, and the
+   * rest stay reachable by typing. */
+  const ranked = createMemo(() => {
+    const tradable = (symbolsQuery.data ?? []).filter((s) => s.status === 'TRADING')
+    const withData = tradable.filter((s) => s.hasData).map((s) => s.symbol)
+    const withoutData = tradable.filter((s) => !s.hasData).map((s) => s.symbol)
+    return { withData, withoutData }
+  })
+
   const options = createMemo(() => {
     const needle = filter().trim().toUpperCase()
-    const all = symbolsQuery.data ?? []
-    if (needle.length === 0) {
-      // Recents first, then the rest of the registry (deduplicated).
-      const recents = recentSymbols().filter((s) => all.some((info) => info.symbol === s))
-      const rest = all.map((s) => s.symbol).filter((s) => !recents.includes(s))
-      return [...recents, ...rest].slice(0, 20)
-    }
-    return all
-      .map((s) => s.symbol)
-      .filter((s) => s.includes(needle))
-      .slice(0, 20)
+    const { withData, withoutData } = ranked()
+    const match = (s: string) => needle.length === 0 || s.includes(needle)
+
+    // Recents first (they are what a person actually switches between),
+    // then everything holding data, then the rest of the tradable list.
+    const recents = recentSymbols().filter(
+      (s) => match(s) && (withData.includes(s) || withoutData.includes(s)),
+    )
+    const seen = new Set(recents)
+    const rest = [...withData, ...withoutData].filter((s) => match(s) && !seen.has(s))
+    return [...recents, ...rest].slice(0, MAX_OPTIONS)
   })
+
+  const hasData = createMemo(() => new Set(ranked().withData))
 
   // Keep the highlighted row in range whenever the option list changes.
   createEffect(() => {
@@ -115,7 +137,21 @@ export function SymbolPicker(props: SymbolPickerProps) {
                     onMouseEnter={() => setActiveIndex(index())}
                     onMouseDown={() => select(symbol)}
                   >
-                    {symbol}
+                    <span class="flex items-center justify-between gap-2">
+                      <span>{symbol}</span>
+                      <Show when={!hasData().has(symbol)}>
+                        <span
+                          class="text-xs"
+                          classList={{
+                            'text-white': index() === activeIndex(),
+                            'text-[var(--color-fg-muted)]': index() !== activeIndex(),
+                          }}
+                          title="Данные по этой паре ещё не загружены"
+                        >
+                          нет данных
+                        </span>
+                      </Show>
+                    </span>
                   </button>
                 </li>
               )}

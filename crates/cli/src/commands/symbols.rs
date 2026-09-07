@@ -40,7 +40,7 @@ pub async fn run(args: SymbolsArgs, config: &AppConfig) -> Result<()> {
             .context("writing symbol registry")?;
         println!("refreshed {count} symbols from {}", exchange.id());
     } else {
-        let meta = MetaStore::open_read_only(&config.meta_db_path)
+        let meta = MetaStore::open_read_only(&config.meta_db_path, &config.data_dir)
             .context("opening meta.duckdb for reading")?;
         for record in meta.list_symbols().context("listing symbols")? {
             println!(

@@ -1,4 +1,6 @@
-use std::path::Path;
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use duckdb::{AccessMode, Config, Connection};
@@ -7,6 +9,9 @@ use crate::error::StorageError;
 use crate::paths::sql_quote_path;
 
 const SCHEMA_VERSION: i64 = 1;
+/// The Parquet datasets that get a glob view, named after their directory
+/// under `data_root` and after the view itself.
+const DATASETS: [&str; 2] = ["klines", "trades"];
 
 /// One row of the `symbols` registry (FR-2.6).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,6 +31,11 @@ pub struct SymbolRecord {
 /// [`MetaStore::open_read_only`].
 pub struct MetaStore {
     conn: Connection,
+    data_root: PathBuf,
+    /// Datasets whose view this connection has already built — see
+    /// [`MetaStore::ensure_views`], which is called repeatedly and must
+    /// only pay for the ones still missing.
+    views_created: RefCell<HashSet<&'static str>>,
 }
 
 impl MetaStore {
@@ -40,26 +50,53 @@ impl MetaStore {
             std::fs::create_dir_all(parent)?;
         }
         let conn = Connection::open(path.as_ref())?;
-        let store = Self { conn };
+        let store = Self::new(conn, data_root.as_ref())?;
         store.migrate()?;
-        store.refresh_views(data_root.as_ref())?;
+        store.drop_persisted_views()?;
+        store.ensure_views()?;
         Ok(store)
     }
 
     /// Open read-only — safe for any number of concurrent readers while a
-    /// writer holds the file elsewhere (NFR-4.1).
-    ///
-    /// Does *not* (re)create the `klines`/`trades` views: DuckDB refuses any
-    /// `CREATE` statement on a read-only-attached database, full stop, no
-    /// exception for views (confirmed the hard way — an earlier version of
-    /// this function assumed otherwise). Views are only ever created by
-    /// [`MetaStore::open_writable`] (i.e. by `backfill`); a reader just
-    /// queries whatever already exists, which stays fresh on its own since
-    /// an existing view re-globs its Parquet files on every query.
-    pub fn open_read_only(path: impl AsRef<Path>) -> Result<Self, StorageError> {
+    /// writer holds the file elsewhere (NFR-4.1). Creates its own views
+    /// like any other connection ([`Self::ensure_views`] explains why they
+    /// are `TEMP`, which is what makes this possible read-only).
+    pub fn open_read_only(
+        path: impl AsRef<Path>,
+        data_root: impl AsRef<Path>,
+    ) -> Result<Self, StorageError> {
         let config = Config::default().access_mode(AccessMode::ReadOnly)?;
         let conn = Connection::open_with_flags(path.as_ref(), config)?;
-        Ok(Self { conn })
+        let store = Self::new(conn, data_root.as_ref())?;
+        store.ensure_views()?;
+        Ok(store)
+    }
+
+    fn new(conn: Connection, data_root: &Path) -> Result<Self, StorageError> {
+        Ok(Self {
+            conn,
+            // Absolute, because a glob is re-evaluated against the querying
+            // process's current directory otherwise — and `serve`'s CWD is
+            // not necessarily the one the command that wrote the data ran in.
+            data_root: std::path::absolute(data_root)?,
+            views_created: RefCell::new(HashSet::new()),
+        })
+    }
+
+    /// Removes views persisted into the database file by older versions of
+    /// this code, which baked in the absolute `data_root` of whichever
+    /// process created them. A `TEMP` view shadows a persisted one of the
+    /// same name, so leaving them would be harmless — but they are dead
+    /// weight that would silently take over again if this connection ever
+    /// failed to build its own, and their paths are misleading to anyone
+    /// inspecting the file. Writable opens only; a reader can't drop them
+    /// and doesn't need to.
+    fn drop_persisted_views(&self) -> Result<(), StorageError> {
+        for dataset in DATASETS {
+            self.conn
+                .execute_batch(&format!("DROP VIEW IF EXISTS main.{dataset}"))?;
+        }
+        Ok(())
     }
 
     fn migrate(&self) -> Result<(), StorageError> {
@@ -77,42 +114,51 @@ impl MetaStore {
         Ok(())
     }
 
-    /// (Re)create the `klines`/`trades` views over their Parquet glob
-    /// (FR-2.6). DuckDB validates the glob eagerly at `CREATE VIEW` time —
-    /// if a dataset has no files yet (e.g. `trades` before Этап 3 ever
-    /// writes one), that dataset's view is simply left absent for now.
-    /// Once created, a view re-globs on every query, so it stays fresh as
-    /// new partitions land without needing to be recreated (verified
+    /// Create the `klines`/`trades` views over their Parquet glob (FR-2.6)
+    /// for this connection. DuckDB validates the glob eagerly at `CREATE
+    /// VIEW` time — if a dataset has no files yet (e.g. `trades` before any
+    /// `stream` run writes one), that dataset's view is left absent for
+    /// now. Once created, a view re-globs on every query, so it stays fresh
+    /// as new partitions land without needing to be recreated (verified
     /// empirically against DuckDB's `read_parquet` before relying on it).
     ///
-    /// `data_root` is resolved to an absolute path first — a relative glob
-    /// gets re-evaluated against whatever the *querying* process's current
-    /// directory happens to be, not the one that created the view (found
-    /// this the hard way: `serve`'s own load test runs with its crate
-    /// directory as CWD, not the repo root every manual CLI run in this
-    /// project happened to share, and every `/ohlcv` call failed with "No
-    /// files found" against a `data/klines/...` glob that was never wrong
-    /// until the CWD actually differed).
+    /// The views are `TEMP`: session-local to one connection, never stored
+    /// in the database file. A view definition captures the absolute glob
+    /// it was created with, and a stored one therefore pins the data
+    /// directory to wherever the *creating* process saw it — which is wrong
+    /// the moment the same data is reached by another path, most obviously
+    /// when a host directory is bind-mounted into a container at `/data`
+    /// (that combination produced "No files found that match the pattern
+    /// /home/.../data/klines/**/*.parquet" against data that was right
+    /// there). Building them per connection instead means every process
+    /// globs its own configured `data_root`, and the file stays portable.
     ///
-    /// Public because opening the store is *not* the only moment views can
-    /// become creatable: on a fresh data directory the very first
-    /// `backfill`/`stream` run opens the store before any Parquet file
-    /// exists, so the open-time attempt necessarily skips both views, and
-    /// the files it then writes stay invisible to `serve` until some later
-    /// writable open happens to run this again. Writers call it after a
-    /// successful write for that reason.
-    pub fn refresh_views(&self, data_root: &Path) -> Result<(), StorageError> {
-        let data_root = std::path::absolute(data_root)?;
-        self.try_create_glob_view("klines", &data_root.join("klines"))?;
-        self.try_create_glob_view("trades", &data_root.join("trades"))?;
+    /// Idempotent, and public because a view can only be created once its
+    /// dataset has at least one Parquet file: DuckDB validates the glob at
+    /// `CREATE` time, so on a fresh data directory both are necessarily
+    /// skipped at open. Callers re-run this after writing (writers) or
+    /// before querying (readers) to pick up a dataset that has since
+    /// appeared. Views already created are left alone — an existing one
+    /// re-globs on every query, so it never goes stale.
+    pub fn ensure_views(&self) -> Result<(), StorageError> {
+        for dataset in DATASETS {
+            if self.views_created.borrow().contains(dataset) {
+                continue;
+            }
+            if self.try_create_glob_view(dataset, &self.data_root.join(dataset))? {
+                self.views_created.borrow_mut().insert(dataset);
+            }
+        }
         Ok(())
     }
 
+    /// `Ok(false)` when the dataset has no Parquet files yet, so there is
+    /// nothing to create a view over.
     fn try_create_glob_view(
         &self,
         view_name: &str,
         dataset_dir: &Path,
-    ) -> Result<(), StorageError> {
+    ) -> Result<bool, StorageError> {
         let glob = format!("{}/**/*.parquet", sql_quote_path(dataset_dir));
         // No `union_by_name`: every file here is written by our own
         // `KlineStore`/`TradeStore` with one fixed schema, so there is
@@ -122,16 +168,16 @@ impl MetaStore {
         // server-side latency on a query that takes microseconds without
         // it; removing it is why that test passes at all.
         let sql = format!(
-            "CREATE OR REPLACE VIEW {view_name} AS
+            "CREATE OR REPLACE TEMP VIEW {view_name} AS
              SELECT * FROM read_parquet('{glob}', hive_partitioning = true)"
         );
         match self.conn.execute_batch(&sql) {
-            Ok(()) => Ok(()),
+            Ok(()) => Ok(true),
             Err(duckdb::Error::DuckDBFailure(_, Some(msg)))
                 if msg.contains("No files found that match the pattern") =>
             {
-                tracing::debug!(view = view_name, %glob, "no parquet files yet, view not (re)created");
-                Ok(())
+                tracing::debug!(view = view_name, %glob, "no parquet files yet, view not created");
+                Ok(false)
             }
             Err(e) => Err(e.into()),
         }
@@ -227,6 +273,23 @@ impl MetaStore {
                 quote_asset: row.get(3)?,
                 status: row.get(4)?,
             });
+        }
+        Ok(out)
+    }
+
+    /// Symbols that something has actually collected data for, per
+    /// `collector_state` (which every writer updates after a successful
+    /// write). The registry lists thousands of tradable pairs while only a
+    /// handful have ever been backfilled, so this is what tells a client
+    /// which of them will actually produce a chart.
+    pub fn symbols_with_data(&self) -> Result<HashSet<String>, StorageError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT DISTINCT symbol FROM collector_state")?;
+        let mut rows = stmt.query([])?;
+        let mut out = HashSet::new();
+        while let Some(row) = rows.next()? {
+            out.insert(row.get::<_, String>(0)?);
         }
         Ok(out)
     }
@@ -342,11 +405,10 @@ mod tests {
     }
 
     /// The first write on a fresh data directory always happens *after* the
-    /// store was opened (nothing to glob at open time), and a read-only
-    /// `serve` can never create the view itself — so a writer must be able
-    /// to publish its own freshly-written files without reopening.
+    /// store was opened (nothing to glob at open time), so a connection must
+    /// be able to pick up files that appeared since, without reopening.
     #[test]
-    fn refresh_views_publishes_files_written_after_open() {
+    fn ensure_views_publishes_files_written_after_open() {
         let dir = tempdir().unwrap();
         let data_root = dir.path().join("data");
         let meta_path = dir.path().join("meta.duckdb");
@@ -367,7 +429,7 @@ mod tests {
             ))
             .unwrap();
 
-        store.refresh_views(&data_root).unwrap();
+        store.ensure_views().unwrap();
 
         let count: i64 = store
             .connection()
@@ -377,7 +439,7 @@ mod tests {
     }
 
     #[test]
-    fn read_only_open_does_not_attempt_create_and_can_query_existing_view() {
+    fn read_only_open_builds_its_own_views_and_can_query_them() {
         let dir = tempdir().unwrap();
         let data_root = dir.path().join("data");
         let meta_path = dir.path().join("meta.duckdb");
@@ -392,15 +454,48 @@ mod tests {
             ))
             .unwrap();
 
-        // The writer creates the view...
+        // A writer creates the file...
         let writer = MetaStore::open_writable(&meta_path, &data_root).unwrap();
         drop(writer);
 
-        // ...a completely separate read-only connection must be able to
-        // open the same file and query that view (NFR-4.1: one writer, any
-        // number of readers) without itself trying to CREATE anything,
-        // which DuckDB rejects outright on a read-only-attached database.
-        let reader = MetaStore::open_read_only(&meta_path).unwrap();
+        // ...and a completely separate read-only connection must be able to
+        // open it and query the data (NFR-4.1: one writer, any number of
+        // readers), building its own TEMP views as it goes.
+        let reader = MetaStore::open_read_only(&meta_path, &data_root).unwrap();
+        let count: i64 = reader
+            .connection()
+            .query_row("SELECT count(*) FROM klines", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    /// What a container bind-mount does: the very same `meta.duckdb` and
+    /// Parquet tree, reached through a different absolute path than the one
+    /// the writing process saw. Nothing about the data changed, so queries
+    /// must keep working — they did not while view definitions (which
+    /// capture their glob) were stored in the file.
+    #[test]
+    fn data_moved_to_another_path_is_still_queryable() {
+        let dir = tempdir().unwrap();
+        let original = dir.path().join("host/data");
+        let part_dir = original.join("klines/symbol=BTCUSDT/dt=2026-08-01");
+        std::fs::create_dir_all(&part_dir).unwrap();
+        Connection::open_in_memory()
+            .unwrap()
+            .execute_batch(&format!(
+                "COPY (SELECT 1 AS x) TO '{}' (FORMAT PARQUET)",
+                sql_quote_path(&part_dir.join("part-0000.parquet"))
+            ))
+            .unwrap();
+        let meta_path = original.join("meta.duckdb");
+        drop(MetaStore::open_writable(&meta_path, &original).unwrap());
+
+        // Same bytes, new mount point.
+        let mounted = dir.path().join("container/data");
+        std::fs::create_dir_all(mounted.parent().unwrap()).unwrap();
+        std::fs::rename(&original, &mounted).unwrap();
+
+        let reader = MetaStore::open_read_only(mounted.join("meta.duckdb"), &mounted).unwrap();
         let count: i64 = reader
             .connection()
             .query_row("SELECT count(*) FROM klines", [], |r| r.get(0))
