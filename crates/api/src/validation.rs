@@ -8,8 +8,6 @@ use ma_core::{Interval, Symbol};
 use crate::error::ApiError;
 use crate::state::{ApiLimits, AppState};
 
-/// FR-5.3: symbol format, then existence in the registry — before any
-/// analytics/storage call is made.
 pub async fn validate_symbol(state: &AppState, raw: &str) -> Result<Symbol, ApiError> {
     let symbol = Symbol::new(raw).map_err(|e| ApiError::bad_request("symbol", e.to_string()))?;
     let checked = symbol.clone();
@@ -25,15 +23,11 @@ pub async fn validate_symbol(state: &AppState, raw: &str) -> Result<Symbol, ApiE
     Ok(symbol)
 }
 
-/// Parses `raw` (defaulting to `"1m"`) into an [`Interval`].
 pub fn parse_interval(raw: Option<&str>) -> Result<Interval, ApiError> {
     let raw = raw.unwrap_or("1m");
     Interval::from_str(raw).map_err(|e| ApiError::bad_request("interval", e.to_string()))
 }
 
-/// `[from, to)` in UTC. Missing `to` defaults to now; missing `from`
-/// defaults to `to - max_date_range_days`. FR-5.3: rejects an inverted or
-/// over-wide range before any query runs.
 pub fn parse_date_range(
     from: Option<&str>,
     to: Option<&str>,
@@ -80,7 +74,6 @@ fn parse_flexible_datetime(s: &str, field: &str) -> Result<NaiveDateTime, ApiErr
     ))
 }
 
-/// A window size in `1..=100_000`, defaulting to `default`.
 pub fn parse_window(raw: Option<u32>, default: u32) -> Result<u32, ApiError> {
     let window = raw.unwrap_or(default);
     if window == 0 || window > 100_000 {
@@ -92,7 +85,6 @@ pub fn parse_window(raw: Option<u32>, default: u32) -> Result<u32, ApiError> {
     Ok(window)
 }
 
-/// A positive, finite threshold, defaulting to `default`.
 pub fn parse_threshold(raw: Option<f64>, default: f64) -> Result<f64, ApiError> {
     let threshold = raw.unwrap_or(default);
     if !threshold.is_finite() || threshold <= 0.0 {
@@ -104,7 +96,6 @@ pub fn parse_threshold(raw: Option<f64>, default: f64) -> Result<f64, ApiError> 
     Ok(threshold)
 }
 
-/// A bucket width in seconds, `1..=7 days`, defaulting to `default`.
 pub fn parse_bucket_seconds(raw: Option<i64>, default: i64) -> Result<i64, ApiError> {
     let bucket = raw.unwrap_or(default);
     const MAX_BUCKET_SECONDS: i64 = 7 * 24 * 3600;
@@ -117,7 +108,6 @@ pub fn parse_bucket_seconds(raw: Option<i64>, default: i64) -> Result<i64, ApiEr
     Ok(bucket)
 }
 
-/// FR-5.5: `limit` defaults to 1000, capped at 10000; `offset` >= 0.
 pub fn parse_pagination(
     limit: Option<i64>,
     offset: Option<i64>,
@@ -140,9 +130,6 @@ pub fn parse_pagination(
     Ok((limit, offset))
 }
 
-/// Post-fetch pagination for analytics series that don't push `LIMIT`
-/// into their SQL (their signatures are shared with the CLI `query`
-/// command from Этап 2 and intentionally unchanged here).
 pub fn paginate<T>(rows: Vec<T>, limit: i64, offset: i64) -> Vec<T> {
     rows.into_iter()
         .skip(offset.max(0) as usize)

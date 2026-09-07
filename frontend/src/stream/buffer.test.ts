@@ -16,7 +16,7 @@ describe('createRafBuffer', () => {
     expect(onFlush).not.toHaveBeenCalled()
 
     await nextFrame()
-    await nextFrame() // the buffer's own rAF callback runs on the frame after these pushes
+    await nextFrame()
 
     expect(onFlush).toHaveBeenCalledTimes(1)
     expect(onFlush).toHaveBeenCalledWith([1, 2, 3])

@@ -6,17 +6,11 @@ import type { Interval } from '../api/types'
 export interface AnomaliesTableProps {
   symbol: string
   interval: Interval
-  /** `openTime` → `close`, built by the parent from the already-loaded
-   * candle data — the anomalies endpoint itself has no price column
-   * (frontend-tz.md FR-5.1 wants one shown anyway). `undefined` for a bar
-   * outside what's currently loaded (shows "—", not a fetch of its own —
-   * this table isn't the source of truth for price). */
+
   priceByTime: Map<number, number>
   onSelect: (openTime: number) => void
 }
 
-/** FR-5.2: 300ms after the last change to threshold/window, not per
- * keystroke. */
 const DEBOUNCE_MS = 300
 const DEFAULT_THRESHOLD = 3.0
 const DEFAULT_WINDOW = 100
@@ -28,8 +22,6 @@ function formatTime(ts: number): string {
   return new Date(ts).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'medium' })
 }
 
-/** FR-5.1/5.2/5.3: sortable anomalies table with adjustable threshold and
- * window (debounced), row click jumps the main chart to that bar. */
 export function AnomaliesTable(props: AnomaliesTableProps) {
   const [thresholdInput, setThresholdInput] = createSignal(DEFAULT_THRESHOLD)
   const [windowInput, setWindowInput] = createSignal(DEFAULT_WINDOW)
@@ -162,6 +154,4 @@ export function AnomaliesTable(props: AnomaliesTableProps) {
   )
 }
 
-// `solid-js`'s `lazy()` (app.tsx: this is never mounted on first paint,
-// the default sidebar tab is "Сделки") needs a default export.
 export default AnomaliesTable

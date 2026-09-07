@@ -8,19 +8,13 @@ export interface IndicatorSeries {
   label: string
   color: string
   values: (number | null)[]
-  /** 'line' (default): a connected rolling-window series (volatility,
-   * OFI). 'points': discrete, unconnected markers with no line between
-   * them — for a series that's inherently sparse/discontinuous (e.g.
-   * flagged anomalies), where a connecting line would visually imply
-   * "the value between these two points changed smoothly," which isn't
-   * true here. */
+
   style?: 'line' | 'points'
 }
 
 export interface IndicatorPanelProps {
   title: string
-  /** Unix seconds, one per data point, ascending — same unit as
-   * Lightweight Charts' `Time` and `./sync`'s `VisibleRange`. */
+
   times: number[]
   series: IndicatorSeries[]
   height?: number
@@ -28,21 +22,13 @@ export interface IndicatorPanelProps {
 
 const DEFAULT_HEIGHT = 110
 
-/** FR-4.1: one uPlot panel for a rolling-window analytics series
- * (volatility, OFI, volume z-score). FR-4.2: pan/zoom here is published
- * to/synced from the main chart and every other panel via `./sync`,
- * exactly like `PriceChart` does on its side. */
 export function IndicatorPanel(props: IndicatorPanelProps) {
   const panelId = Symbol('indicator-panel')
   let container: HTMLDivElement | undefined
   let plot: uPlot | undefined
   let applyingExternalRange = false
   let wasRecentUserGesture: () => boolean = () => false
-  // Seeded from the initial props (not `[]`) so the first run of the
-  // color-diff effect below sees "unchanged" and just calls `setData` —
-  // `onMount` has already constructed the plot with these exact colors.
-  // Deliberately a one-time read, not tracked: this is component-setup
-  // state, not a value that should react to later prop changes on its own.
+
   // eslint-disable-next-line solid/reactivity
   let previousColors = props.series.map((s) => s.color)
 
@@ -104,13 +90,6 @@ export function IndicatorPanel(props: IndicatorPanelProps) {
     })
   })
 
-  // uPlot bakes `stroke`/axis colors into the instance at construction —
-  // there's no public "restyle" API, so a genuine color change (e.g. a
-  // theme/colorblind-palette flip upstream re-deriving `props.series[].
-  // color`, see `state/theme.ts`) needs a full destroy+recreate, not
-  // `setData()`. Colors are the *only* thing that forces this: recreating
-  // on every ordinary data update (query refetch, live tick) would be
-  // needlessly expensive and would flash the panel for no visual reason.
   createEffect(() => {
     const colors = props.series.map((s) => s.color)
     const colorsChanged =

@@ -1,5 +1,3 @@
-// eslint-plugin-solid doesn't support ESLint 10's peer range yet
-// (npm error, checked at install time) — pinned to eslint@9 until it does.
 import js from '@eslint/js'
 import solid from 'eslint-plugin-solid'
 import tseslint from 'typescript-eslint'
@@ -18,6 +16,7 @@ export default tseslint.config(
     rules: {
       ...solid.configs.recommended.rules,
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      'no-empty': ['error', { allowEmptyCatch: true }],
     },
   },
   {

@@ -17,14 +17,10 @@ use crate::model::parse_kline_row;
 use crate::ratelimit::{backoff_delay, build_limiter, parse_retry_after, BackoffConfig, Limiter};
 use crate::{ExchangeSource, Instrument, StreamKind, TimeRange};
 
-/// Binance's `exchange` value everywhere it's stored (Parquet rows,
-/// `meta.duckdb`) and the default scope for any query that filters by
-/// exchange but has no other exchange to choose from yet.
 pub const EXCHANGE_ID: &str = "binance";
-/// Binance's own cap on `limit` for `/api/v3/klines` and `/api/v3/aggTrades`.
+
 const REST_PAGE_LIMIT: u32 = 1000;
 
-/// Binance Spot connection settings.
 #[derive(Debug, Clone)]
 pub struct BinanceConfig {
     pub base_url: String,
@@ -52,20 +48,12 @@ struct Inner {
     backoff: BackoffConfig,
 }
 
-/// `ExchangeSource` implementation for Binance Spot (FR-1.1).
-///
-/// Cheap to clone (an `Arc` handle): `subscribe()` needs to hand back a
-/// `'static` stream that keeps its own REST-calling capability for the
-/// mandatory post-reconnect gap-fill (FR-1.5), without borrowing from the
-/// caller.
 #[derive(Clone)]
 pub struct BinanceSpot {
     inner: Arc<Inner>,
 }
 
 impl BinanceSpot {
-    /// Builds a client from `config`. Fails only if the HTTP client or rate
-    /// limiter can't be constructed — no network I/O happens here.
     pub fn new(config: BinanceConfig) -> Result<Self, ExchangeError> {
         let http = reqwest::Client::builder()
             .user_agent(concat!("market-analyzer/", env!("CARGO_PKG_VERSION")))
@@ -83,8 +71,6 @@ impl BinanceSpot {
         })
     }
 
-    /// GET `path` with query params, honoring the rate limiter and the
-    /// FR-1.3 backoff rules for HTTP 429/418.
     async fn get_with_retry(
         &self,
         path: &str,
@@ -159,11 +145,6 @@ impl BinanceSpot {
             .collect()
     }
 
-    /// Historical aggregated trades for `[from, to]`, used only for the
-    /// mandatory post-reconnect gap-fill (FR-1.5). Not part of
-    /// `ExchangeSource`: Binance has no time-ranged REST endpoint for
-    /// individual raw trades, only aggregated ones — see
-    /// `live::RawAggTrade` for the id-space caveat this implies.
     pub async fn agg_trades(
         &self,
         symbol: &Symbol,
@@ -193,10 +174,7 @@ impl BinanceSpot {
             if (page_len as u32) < REST_PAGE_LIMIT {
                 break;
             }
-            // The cursor is derived from data the remote side controls, so
-            // a response whose last timestamp doesn't move it forward would
-            // otherwise re-request the same window forever, accumulating
-            // the same rows in memory each time.
+
             let next_cursor = last_ts.saturating_add(1);
             if next_cursor <= cursor {
                 tracing::warn!(
@@ -276,8 +254,7 @@ impl ExchangeSource for BinanceSpot {
             if (page_len as u32) < REST_PAGE_LIMIT {
                 break;
             }
-            // Same guard as `agg_trades`: never let the remote response
-            // decide whether this loop terminates.
+
             let next_cursor = last_open_ms.saturating_add(1);
             if next_cursor <= cursor {
                 tracing::warn!(
@@ -308,10 +285,6 @@ impl ExchangeSource for BinanceSpot {
     }
 }
 
-/// Combined-stream connection with reconnect + mandatory REST gap-fill
-/// (FR-1.4, FR-1.5). Never terminates on its own — errors are logged and
-/// recovered from — so the item type is always `Ok`; it stops only when the
-/// consumer drops the stream.
 fn live_stream(
     client: BinanceSpot,
     symbols: Vec<Symbol>,
@@ -386,16 +359,7 @@ fn live_stream(
                     to = %reconnect_at,
                     "reconnect gap detected, backfilling via REST (FR-1.5)"
                 );
-                // Tracks whether every gap-fill call below actually
-                // succeeded. `last_event_time` must only advance past
-                // `gap_from` when that's true — otherwise a transient REST
-                // failure right after a disconnect (exactly when network
-                // conditions are often still bad) would silently and
-                // permanently drop that window: the next reconnect would
-                // only fill forward from `reconnect_at`, never revisit the
-                // missed range. Re-fetching the same range again next time
-                // is safe (write-path dedup on `(exchange, interval,
-                // open_time)` / `(exchange, trade_id)` absorbs the repeat).
+
                 let mut gapfill_failed = false;
                 for kind in &streams {
                     match kind {

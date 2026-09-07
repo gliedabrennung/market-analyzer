@@ -2,12 +2,6 @@ use rust_decimal::Decimal;
 
 use crate::error::CoreError;
 
-/// Rescale a decimal up to `target_scale`, refusing to silently drop precision.
-///
-/// Money values must never be truncated implicitly (see FR-2.4 / NFR money
-/// requirements) — if the source value already carries more fractional
-/// digits than the target column scale allows, this is an error, not a
-/// rounding.
 pub fn rescale_checked(value: Decimal, target_scale: u32) -> Result<Decimal, CoreError> {
     if value.scale() > target_scale {
         return Err(CoreError::DecimalScale {

@@ -3,9 +3,6 @@ import { createQuery } from '@tanstack/solid-query'
 import { fetchSymbols } from '../api/endpoints'
 import { recentSymbols, pushRecentSymbol } from '../state/recent-symbols'
 
-/** The list is scrollable (`max-h-64`), so this only bounds how much DOM
- * one keystroke rebuilds — not what the user can reach, which is what
- * typing is for. */
 const MAX_OPTIONS = 50
 
 export interface SymbolPickerProps {
@@ -13,8 +10,6 @@ export interface SymbolPickerProps {
   onSelect: (symbol: string) => void
 }
 
-/** FR-8.1/NFR-3.1: filter the `/symbols` registry, arrow-key/Enter/Escape
- * navigation, recently-used symbols shown first when the filter is empty. */
 export function SymbolPicker(props: SymbolPickerProps) {
   const [filter, setFilter] = createSignal('')
   const [open, setOpen] = createSignal(false)
@@ -27,14 +22,6 @@ export function SymbolPicker(props: SymbolPickerProps) {
     staleTime: Infinity,
   }))
 
-  /** The registry is the exchange's entire pair list: ~3700 entries, most
-   * of them long delisted (`status` other than `TRADING`), and only the
-   * handful that were actually collected can draw a chart. Listing it raw
-   * and alphabetically meant the dropdown opened on `0GBNB, 1000CATBNB,
-   * 1INCHDOWNUSDT…` — nothing a person would pick — and every second pick
-   * landed on a symbol with no data, which looks exactly like a broken
-   * app. Delisted pairs are dropped, collected ones come first, and the
-   * rest stay reachable by typing. */
   const ranked = createMemo(() => {
     const tradable = (symbolsQuery.data ?? []).filter((s) => s.status === 'TRADING')
     const withData = tradable.filter((s) => s.hasData).map((s) => s.symbol)
@@ -47,8 +34,6 @@ export function SymbolPicker(props: SymbolPickerProps) {
     const { withData, withoutData } = ranked()
     const match = (s: string) => needle.length === 0 || s.includes(needle)
 
-    // Recents first (they are what a person actually switches between),
-    // then everything holding data, then the rest of the tradable list.
     const recents = recentSymbols().filter(
       (s) => match(s) && (withData.includes(s) || withoutData.includes(s)),
     )
@@ -59,7 +44,6 @@ export function SymbolPicker(props: SymbolPickerProps) {
 
   const hasData = createMemo(() => new Set(ranked().withData))
 
-  // Keep the highlighted row in range whenever the option list changes.
   createEffect(() => {
     if (activeIndex() >= options().length) setActiveIndex(Math.max(0, options().length - 1))
   })

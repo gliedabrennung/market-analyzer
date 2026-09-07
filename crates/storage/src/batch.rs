@@ -1,6 +1,5 @@
 use std::time::{Duration, Instant};
 
-/// Flush thresholds (FR-2.2): whichever is hit first.
 #[derive(Debug, Clone, Copy)]
 pub struct BatchConfig {
     pub max_rows: usize,
@@ -16,9 +15,6 @@ impl Default for BatchConfig {
     }
 }
 
-/// Accumulates items until a row-count or time threshold is crossed
-/// (FR-2.2). Pure in-memory bookkeeping — the caller owns actually writing
-/// out what [`BatchBuffer::drain`] returns.
 pub struct BatchBuffer<T> {
     config: BatchConfig,
     items: Vec<T>,
@@ -26,7 +22,6 @@ pub struct BatchBuffer<T> {
 }
 
 impl<T> BatchBuffer<T> {
-    /// Starts an empty buffer under `config`'s thresholds.
     pub fn new(config: BatchConfig) -> Self {
         Self {
             config,
@@ -35,9 +30,6 @@ impl<T> BatchBuffer<T> {
         }
     }
 
-    /// Push one item. The caller should check [`Self::should_flush`]
-    /// afterward (or on its own periodic tick, to catch the time-based
-    /// threshold even when no new item arrives).
     pub fn push(&mut self, item: T) {
         if self.items.is_empty() {
             self.opened_at = Instant::now();
@@ -45,24 +37,20 @@ impl<T> BatchBuffer<T> {
         self.items.push(item);
     }
 
-    /// Whether either threshold has been crossed (never true while empty).
     pub fn should_flush(&self) -> bool {
         !self.items.is_empty()
             && (self.items.len() >= self.config.max_rows
                 || self.opened_at.elapsed() >= self.config.max_age)
     }
 
-    /// Whether the buffer currently holds no items.
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
-    /// Number of items currently buffered.
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
-    /// Take all buffered items, resetting the buffer's age.
     pub fn drain(&mut self) -> Vec<T> {
         self.opened_at = Instant::now();
         std::mem::take(&mut self.items)

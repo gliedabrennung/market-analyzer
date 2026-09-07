@@ -10,7 +10,6 @@ use crate::error::ExchangeError;
 
 const MONEY_SCALE: u32 = 8;
 
-/// Combined-stream envelope: `{"stream": "...", "data": {...}}`.
 #[derive(Debug, Deserialize)]
 pub struct CombinedEnvelope {
     #[allow(dead_code)]
@@ -18,10 +17,6 @@ pub struct CombinedEnvelope {
     pub data: serde_json::Value,
 }
 
-/// Parse one combined-stream `data` payload into a normalized [`MarketEvent`]
-/// (FR-1.6). Returns `Ok(None)` for an event type we don't (yet) model —
-/// logged and skipped rather than treated as fatal, since Binance may add
-/// stream types over time.
 pub fn parse_market_event(
     data: serde_json::Value,
     exchange: &str,
@@ -142,9 +137,7 @@ impl RawKlinePayload {
             quote_volume: rescale_checked(dec(&self.quote_volume)?, MONEY_SCALE)?,
             trades_count: self.trades_count,
             taker_buy_base: Some(rescale_checked(dec(&self.taker_buy_base)?, MONEY_SCALE)?),
-            // The live kline stream tells us finality directly via `x`,
-            // unlike the REST endpoint where it must be inferred from
-            // close_time (architecture §2.2 / FR-1.6 normalization).
+
             is_closed: self.is_closed,
         })
     }
@@ -180,13 +173,6 @@ impl RawDepthEvent {
     }
 }
 
-/// One row of `GET /api/v3/aggTrades`, used only for the mandatory
-/// post-reconnect gap-fill (FR-1.5) — Binance has no time-ranged REST
-/// endpoint for individual raw trades, only aggregated ones. `a` (the
-/// aggregate trade id) is used as our `trade_id`: it is unique and
-/// monotonic within a symbol, same as a raw trade id, but is a distinct id
-/// space from the live `<symbol>@trade` stream's `t`. This is a deliberate,
-/// documented compromise — see crates/exchanges/src/binance.rs `agg_trades`.
 #[derive(Debug, Deserialize)]
 pub struct RawAggTrade {
     #[serde(rename = "a")]
@@ -202,7 +188,6 @@ pub struct RawAggTrade {
 }
 
 impl RawAggTrade {
-    /// Normalizes into a [`Trade`] (see the struct doc for the id-space caveat).
     pub fn into_trade(self, symbol: &Symbol, exchange: &str) -> Result<Trade, ExchangeError> {
         Ok(Trade {
             ts: ts_millis(self.trade_time_ms)?,
@@ -316,14 +301,6 @@ mod tests {
         assert!(result.is_none());
     }
 
-    /// NFR-1.1 (≥10,000 events/sec/core): measures our own parsing capacity
-    /// on synthetic events, not real market traffic (BTCUSDT does not
-    /// actually trade at 10k/s). Not gated on a hard threshold here —
-    /// `cargo test`'s default debug profile is not representative for a
-    /// CPU-bound hot loop (unlike e.g. the DuckDB-bound storage perf test,
-    /// which mostly measures precompiled C++ code). Run with `--release`
-    /// for the number that matters:
-    ///   cargo test -p ma-exchanges --release live::tests::throughput -- --ignored --nocapture
     #[test]
     #[ignore]
     fn throughput_benchmark() {

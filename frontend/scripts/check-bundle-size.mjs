@@ -1,19 +1,4 @@
 #!/usr/bin/env node
-// NFR-1.1 (frontend-tz.md §6.1): "Начальный JS-чанк < 150 КБ gzip; общий
-// вес критического пути < 250 КБ" — "проверка в CI". Run after `vite
-// build`; gzips the actual dist/ assets (matches what a browser
-// transfers, independent of rollup-plugin-visualizer's own per-module
-// accounting, which double-counts modules that end up merged into one
-// gzip stream).
-//
-// "Начальный" ("initial") is load-bearing once lazy()/dynamic import()
-// exists (Этап 4's CorrelationMatrix): only the script(s)/stylesheet(s)
-// dist/index.html actually references eagerly count toward this budget —
-// a lazy chunk sitting unused in dist/assets/ until a user action
-// requests it is exactly what NFR-2.6 asks for, not a budget violation.
-// Parses index.html's own <script>/<link rel=stylesheet> tags rather
-// than summing every file under dist/, which would penalize the code-
-// splitting this budget is supposed to encourage.
 
 import { readFileSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
@@ -24,18 +9,12 @@ const JS_BUDGET_BYTES = 150 * 1024
 const CRITICAL_PATH_BUDGET_BYTES = 250 * 1024
 
 function gzipSize(path) {
-  // Level 9 (max compression): matches what a production CDN/server
-  // actually serves, and what `vite build`'s own reported gzip size uses
-  // — level 6 (Node's zlib default) reports ~2-3% larger and would make
-  // this check inconsistent with the number `npm run build` prints.
   return gzipSync(readFileSync(path), { level: 9 }).length
 }
 
 function eagerAssetPaths(html) {
   const paths = new Set()
-  // module scripts and stylesheets index.html loads unconditionally —
-  // modulepreload counts too (Vite emits it when it statically knows a
-  // chunk is needed right away, as opposed to behind a runtime lazy()).
+
   const pattern = /<(?:script[^>]*\ssrc|link[^>]*\shref)="([^"]+)"[^>]*>/g
   for (const match of html.matchAll(pattern)) {
     const src = match[1]

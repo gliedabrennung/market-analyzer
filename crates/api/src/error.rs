@@ -3,8 +3,6 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::json;
 
-/// FR-5.2: every error response is `{ "error": { code, message, details } }`
-/// with the mandated HTTP status per class.
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
     #[error("{message}")]
@@ -24,7 +22,6 @@ pub enum ApiError {
 }
 
 impl ApiError {
-    /// A `400` for `parameter`, with it recorded in `details` (FR-5.2/5.3).
     pub fn bad_request(parameter: &str, message: impl Into<String>) -> Self {
         ApiError::BadRequest {
             message: message.into(),
@@ -41,7 +38,6 @@ impl ApiError {
         }
     }
 
-    /// The FR-5.2-mandated HTTP status for this error's class.
     pub fn status(&self) -> StatusCode {
         match self {
             ApiError::BadRequest { .. } => StatusCode::BAD_REQUEST,
@@ -59,11 +55,6 @@ impl ApiError {
     }
 }
 
-/// What a `500` says to the client. The underlying error text is a raw
-/// DuckDB/storage message: absolute paths of the data directory, the SQL
-/// that failed, sometimes schema details. That belongs in the server log,
-/// not in a response any unauthenticated caller can read — the client can
-/// do nothing with it either way.
 const INTERNAL_MESSAGE: &str = "internal error";
 
 impl IntoResponse for ApiError {
@@ -86,9 +77,6 @@ impl IntoResponse for ApiError {
     }
 }
 
-/// FR-5.2's `{ "error": { code, message, details } }` shape, for the one
-/// call site (the WS upstream-subscribe failure) that reports over a raw
-/// `Message::Text` frame instead of an `IntoResponse`.
 pub fn error_envelope(code: &str, message: impl Into<String>) -> serde_json::Value {
     json!({
         "error": {

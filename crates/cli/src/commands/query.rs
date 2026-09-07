@@ -17,8 +17,6 @@ use crate::output::print_rows;
 use super::daterange::day_range_utc_exclusive_end;
 use super::QueryArgs;
 
-/// FR-3.1..FR-3.7 dispatch: run the named analytics query and print its
-/// rows. See each `--name` arm below for the `--param` keys it reads.
 pub fn run(args: QueryArgs, config: &AppConfig) -> Result<()> {
     let params: HashMap<String, String> = args.params.into_iter().collect();
     let symbol = Symbol::new(&args.symbol).map_err(|e| anyhow::anyhow!("--symbol: {e}"))?;

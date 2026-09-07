@@ -13,8 +13,6 @@ use crate::config::AppConfig;
 use super::daterange::day_range_utc;
 use super::BackfillArgs;
 
-/// FR-1.2 / FR-2.1..FR-2.3: fetch historical klines for each symbol and
-/// write them to the Parquet layout, deduplicated.
 pub async fn run(args: BackfillArgs, config: &AppConfig) -> Result<()> {
     let interval =
         Interval::from_str(&args.interval).map_err(|e| anyhow::anyhow!("--interval: {e}"))?;
@@ -56,14 +54,7 @@ pub async fn run(args: BackfillArgs, config: &AppConfig) -> Result<()> {
             .with_context(|| format!("fetching klines for {symbol}"))?;
 
         let fetched = fetched_klines.len();
-        // Binance's REST /api/v3/klines returns the still-forming current
-        // candle when the requested range includes "now" (e.g. `--to
-        // <today>`). Parquet files are immutable and the dedup key is
-        // (exchange, interval, open_time), so persisting that partial
-        // snapshot would permanently freeze it — no later backfill or
-        // stream run could ever correct it, since the dedup check only
-        // looks at open_time, not is_closed. Mirrors the same guard in
-        // `stream.rs`.
+
         let incomplete = fetched_klines.iter().filter(|k| !k.is_closed).count();
         let klines: Vec<_> = fetched_klines.into_iter().filter(|k| k.is_closed).collect();
 
@@ -72,11 +63,6 @@ pub async fn run(args: BackfillArgs, config: &AppConfig) -> Result<()> {
             .with_context(|| format!("writing klines for {symbol}"))?;
 
         if written > 0 {
-            // On a fresh data directory there were no Parquet files when
-            // `open_writable` ran, so the `klines` view could not be created
-            // then — and `serve` (read-only) can never create it. Without
-            // this, the first backfill's data stays invisible to the API
-            // until some unrelated later write reopens the store.
             meta.ensure_views()
                 .context("creating meta.duckdb views over the new Parquet files")?;
         }

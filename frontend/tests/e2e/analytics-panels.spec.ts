@@ -21,9 +21,7 @@ const SYMBOLS_JSON = [
 ]
 
 const candles = makeFixtureCandles(200)
-// A bar comfortably inside the fixture range, for the anomaly's openTime
-// — needs to line up with a real candle so AnomaliesTable's `priceByTime`
-// lookup (app.tsx) finds a price, not "—".
+
 const ANOMALY_OPEN_TIME = candles[50]!.openTime
 
 test.beforeEach(async ({ page }) => {
@@ -34,8 +32,7 @@ test.beforeEach(async ({ page }) => {
   const today = new Date().toISOString().slice(0, 10)
   await page.route('**/ohlcv/**', (route) => {
     const to = new URL(route.request().url()).searchParams.get('to')
-    // The live window's `to` is an instant (see app.tsx's `range`), so it
-    // starts with today's date; an older window carries an earlier date.
+
     if (to === null || !to.startsWith(today)) {
       route.fulfill({ contentType: 'application/json', body: '[]' })
       return
@@ -64,7 +61,6 @@ test.beforeEach(async ({ page }) => {
   )
 })
 
-// FR-5.3: clicking an anomalies-table row centers the chart on that bar.
 test('clicking an anomaly row jumps the chart to that bar', async ({ page }) => {
   await page.goto('/?symbol=BTCUSDT&interval=1m')
   await expect(page.getByTestId('price-chart').locator('canvas').first()).toBeVisible()
@@ -77,7 +73,6 @@ test('clicking an anomaly row jumps the chart to that bar', async ({ page }) => 
   await expect(page.getByTestId('price-chart')).toHaveAttribute('data-last-jump-nonce', /\d+/)
 })
 
-// FR-1.5: one endpoint failing (500) doesn't take any other panel down.
 test('one failing analytics endpoint does not break the others', async ({ page }) => {
   await page.route('**/analytics/*/vwap**', (route) =>
     route.fulfill({
@@ -88,14 +83,12 @@ test('one failing analytics endpoint does not break the others', async ({ page }
   )
 
   await page.goto('/?symbol=BTCUSDT&interval=1m')
-  // The main chart (candles + volume) still renders even though VWAP's
-  // own fetch failed.
+
   await expect(page.getByTestId('price-chart').locator('canvas').first()).toBeVisible()
-  // The volatility panel (a fully separate query) still renders too.
+
   await expect(page.getByText('Realized Volatility')).toBeVisible()
 })
 
-// FR-8.5 hotkeys.
 test('hotkeys: 1-6 switch interval, / focuses symbol search, Esc blurs it', async ({ page }) => {
   await page.goto('/?symbol=BTCUSDT&interval=1m')
   await expect(page.getByTestId('price-chart').locator('canvas').first()).toBeVisible()
@@ -111,8 +104,6 @@ test('hotkeys: 1-6 switch interval, / focuses symbol search, Esc blurs it', asyn
 })
 
 test('hotkeys do not fire while typing in an input', async ({ page }) => {
-  // Start on a *different* interval than what typing "1" would hotkey to
-  // (1m) — otherwise a broken guard and a working one look identical.
   await page.goto('/?symbol=BTCUSDT&interval=15m')
   await expect(page.getByTestId('price-chart').locator('canvas').first()).toBeVisible()
 

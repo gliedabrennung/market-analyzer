@@ -20,8 +20,6 @@ pub struct OhlcvQuery {
     pub offset: Option<i64>,
 }
 
-/// `GET /ohlcv/{symbol}` (FR-5.1). Arrow IPC or JSON per `Accept`
-/// (frontend-tz.md FR-1.1/FR-1.2).
 pub async fn ohlcv(
     State(state): State<Arc<AppState>>,
     Path(symbol): Path<String>,

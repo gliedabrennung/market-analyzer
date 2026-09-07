@@ -1,8 +1,4 @@
--- FR-3.1: resample raw trades into OHLCV bars of an arbitrary width.
--- Scoped by `exchange` so a future second exchange's rows for the same
--- symbol can never silently interleave into one bar (architecture goal
--- Ц4). Params, in order: bucket_seconds, exchange, symbol,
--- from_ts (inclusive), to_ts (exclusive)
+
 SELECT
     time_bucket((? || ' seconds')::INTERVAL, ts) AS bucket,
     symbol,

@@ -24,7 +24,7 @@ describe('compute24hStats', () => {
   it('computes % change from the first bar at/after the 24h cutoff', () => {
     const rows = [candle(NOW - 2 * DAY, 100), candle(NOW - DAY, 200), candle(NOW - DAY / 2, 250)]
     const stats = compute24hStats(rows, 300, NOW)
-    // baseline = the 200 bar (first at/after cutoff); (300-200)/200 * 100 = 50
+
     expect(stats.changePercent).toBe(50)
   })
 

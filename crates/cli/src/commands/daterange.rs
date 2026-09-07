@@ -1,8 +1,6 @@
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 
-/// `from` at `00:00:00.000`, one day past `to` (defaulting to today) at
-/// `00:00:00.000` — i.e. `[from, to_exclusive)`.
 fn day_bounds_utc(
     from: NaiveDate,
     to: Option<NaiveDate>,
@@ -29,9 +27,6 @@ fn day_bounds_utc(
     Ok((from_utc, to_exclusive_utc))
 }
 
-/// Turns `--from`/`--to` day arguments into an inclusive UTC instant range:
-/// `from` at `00:00:00.000`, `to` at `23:59:59.999`. For historical REST
-/// backfill windows, which are inclusive on both ends.
 pub fn day_range_utc(
     from: NaiveDate,
     to: Option<NaiveDate>,
@@ -43,8 +38,6 @@ pub fn day_range_utc(
     ))
 }
 
-/// Same day range, but with an exclusive upper bound (`ts < to`) — for
-/// analytics queries whose SQL filters that way.
 pub fn day_range_utc_exclusive_end(
     from: NaiveDate,
     to: Option<NaiveDate>,

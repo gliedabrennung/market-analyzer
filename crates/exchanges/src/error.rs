@@ -1,7 +1,5 @@
 use thiserror::Error;
 
-/// Errors from talking to an exchange (transport, rate limiting, or
-/// malformed responses).
 #[derive(Debug, Error)]
 pub enum ExchangeError {
     #[error("http transport error: {0}")]

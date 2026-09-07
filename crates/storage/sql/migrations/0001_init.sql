@@ -1,9 +1,3 @@
--- Initial meta.duckdb schema (FR-2.6, FR-2.7).
---
--- `collector_state.interval` is nullable (NULL for the `trades` dataset per
--- TZ 5.3), so it cannot be part of a PRIMARY KEY; the logical key
--- (exchange, symbol, dataset, interval) is enforced at the application
--- level in ma_storage::meta instead.
 
 CREATE TABLE IF NOT EXISTS schema_version (
     version BIGINT NOT NULL

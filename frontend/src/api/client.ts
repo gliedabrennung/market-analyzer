@@ -2,9 +2,6 @@ import type { ApiErrorBody } from './types'
 
 const ARROW_MIME = 'application/vnd.apache.arrow.stream'
 
-/** The FR-5.2 error envelope, thrown as a real `Error` so panels can catch
- * it, show `message`, and use `code`/`details` for anything more specific
- * (FR-1.5: one panel's error must not crash the rest of the UI). */
 export class ApiRequestError extends Error {
   readonly status: number
   readonly code: string
@@ -23,12 +20,6 @@ export interface FetchRowsOptions {
   signal?: AbortSignal
 }
 
-/** Fetches `path`, preferring Arrow IPC (frontend-tz.md FR-1.1) and
- * transparently falling back to JSON (FR-1.2) when the server can't or
- * won't produce Arrow — either a `406`, or a `200` with a non-Arrow
- * `Content-Type`. `parseArrow` turns IPC bytes into rows of `T`; the JSON
- * body is assumed to already be an array of that same row shape.
- */
 export async function fetchRows<T>(
   path: string,
   parseArrow: (bytes: Uint8Array) => T[],

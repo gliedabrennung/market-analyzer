@@ -7,16 +7,8 @@ use ma_core::{rescale_checked, Interval, Kline, Symbol};
 
 use crate::error::ExchangeError;
 
-/// Fractional-digit scale for all money columns: `DECIMAL(18,8)` and
-/// `DECIMAL(28,8)` both carry 8 decimal places (FR-2.4), they only differ
-/// in total precision.
 const MONEY_SCALE: u32 = 8;
 
-/// Parse one row of Binance's `GET /api/v3/klines` response.
-///
-/// The response is a JSON array-of-arrays with mixed element types, so it
-/// is deliberately parsed by position rather than via `#[derive(Deserialize)]`
-/// (architecture §2.1).
 pub fn parse_kline_row(
     row: &[serde_json::Value],
     symbol: &Symbol,
@@ -42,8 +34,7 @@ pub fn parse_kline_row(
     let raw_trades_count = row[8]
         .as_i64()
         .ok_or_else(|| ExchangeError::Parse("trades_count is not an integer".to_string()))?;
-    // `as i32` would wrap silently (a count past i32::MAX turning negative
-    // and being written to Parquet as such); refuse the row instead.
+
     let trades_count = i32::try_from(raw_trades_count).map_err(|_| {
         ExchangeError::Parse(format!(
             "trades_count {raw_trades_count} does not fit in i32"

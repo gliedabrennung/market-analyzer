@@ -5,9 +5,6 @@ use serde::Serialize;
 
 use ma_analytics::rowutil::{decimal_col, timestamp_col};
 
-/// One candle for `GET /ohlcv/{symbol}` (FR-5.1). Not an `ma_analytics`
-/// type: none of the Этап 2 analytics functions is "just fetch raw
-/// klines" — this is API-specific.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct OhlcvRow {
     pub open_time: DateTime<Utc>,
@@ -56,10 +53,6 @@ pub fn fetch_ohlcv(
     Ok(out)
 }
 
-/// `decimal_col` returns `ma_analytics::AnalyticsError` (it can fail on a
-/// malformed string, not just a DuckDB error); this query reports through
-/// `duckdb::Error` instead since callers already map that to `ApiError`,
-/// so a parse failure is folded in as a generic DuckDB-shaped error.
 fn decimal_err(e: ma_analytics::AnalyticsError) -> duckdb::Error {
     duckdb::Error::ToSqlConversionFailure(Box::new(e))
 }

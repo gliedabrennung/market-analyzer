@@ -16,8 +16,6 @@ function formatUpdateTime(ts: number | null): string {
   return new Date(ts).toLocaleTimeString('ru-RU', { hour12: false })
 }
 
-/** FR-8.2: current price, 24h change, 24h volume, connection state, last
- * update time. */
 export function StatusBar(props: StatusBarProps) {
   const currentPrice = createMemo(() => props.liveKline?.close ?? props.rows.at(-1)?.close ?? null)
   const lastUpdateTs = createMemo(() => props.liveKline?.closeTime ?? props.rows.at(-1)?.closeTime ?? null)

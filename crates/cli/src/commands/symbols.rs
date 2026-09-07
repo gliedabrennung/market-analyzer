@@ -9,8 +9,6 @@ use crate::config::AppConfig;
 
 use super::SymbolsArgs;
 
-/// FR-2.6: `symbols --refresh` resyncs the registry from the exchange's
-/// instrument list; without `--refresh`, just prints what's registered.
 pub async fn run(args: SymbolsArgs, config: &AppConfig) -> Result<()> {
     if args.refresh {
         let exchange = BinanceSpot::new(BinanceConfig {

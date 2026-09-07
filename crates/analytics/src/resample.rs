@@ -8,7 +8,6 @@ use ma_core::Symbol;
 use crate::error::AnalyticsError;
 use crate::rowutil::{decimal_col, timestamp_col};
 
-/// One resampled OHLCV bar (FR-3.1).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ResampledBar {
     pub bucket: DateTime<Utc>,
@@ -21,8 +20,6 @@ pub struct ResampledBar {
     pub trades_count: i64,
 }
 
-/// Resample raw trades for `exchange`/`symbol` into OHLCV bars of
-/// `bucket_seconds` width, over `[from, to)`. Reads the `trades` view (FR-2.6).
 pub fn resample_ohlcv(
     conn: &Connection,
     exchange: &str,
@@ -81,8 +78,7 @@ mod tests {
         let mut stmt = conn
             .prepare("INSERT INTO trades VALUES (?, 'BTCUSDT', 'binance', ?, CAST(? AS DECIMAL(18,8)), CAST(? AS DECIMAL(18,8)), false)")
             .unwrap();
-        // Two 60s buckets: [0,60) prices 100,101,99 -> O=100 H=101 L=99 C=99, vol=1+2+3=6
-        //                  [60,120) price 200 -> O=H=L=C=200, vol=4
+
         let rows: &[(&str, i64, &str, &str)] = &[
             ("2026-01-01 00:00:00", 1, "100", "1"),
             ("2026-01-01 00:00:10", 2, "101", "2"),

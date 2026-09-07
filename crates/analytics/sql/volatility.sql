@@ -1,9 +1,4 @@
--- FR-3.3: rolling realized volatility from log returns, scaled to a daily
--- horizon by the caller-supplied scale factor (sqrt(bars per day)).
--- Scoped by `exchange` so a future second exchange's rows for the same
--- symbol can never silently interleave into one log-return series
--- (architecture goal Ц4).
--- Params, in order: exchange, symbol, interval, frame_size_minus_one, scale_factor
+
 WITH base AS (
     SELECT
         open_time,

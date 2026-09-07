@@ -7,9 +7,6 @@ use crate::config::AppConfig;
 
 use super::ServeArgs;
 
-/// FR-5.x: run the HTTP API. Graceful shutdown on SIGINT/SIGTERM (FR-6.4)
-/// is `axum`'s own `with_graceful_shutdown`, which stops accepting new
-/// connections and waits for in-flight ones to finish.
 pub async fn run(args: ServeArgs, config: &AppConfig) -> Result<()> {
     let pool = DbPool::new(
         &config.meta_db_path,

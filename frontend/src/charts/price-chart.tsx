@@ -21,9 +21,7 @@ import { origin, publishVisibleRange, trackUserGestures, visibleRange } from './
 import { colorblindPalette, theme } from '../state/theme'
 
 const MA_WINDOW = 20
-/** FR-3.5: trigger an earlier-history fetch once the visible window gets
- * this close to the start of the loaded data, not only exactly at bar 0 —
- * a fast fling-pan can jump several bars past the edge in one event. */
+
 const LOAD_EARLIER_THRESHOLD_BARS = 20
 
 export interface PriceChartProps {
@@ -31,25 +29,13 @@ export interface PriceChartProps {
   vwapData?: VwapPoint[]
   showVwap?: boolean
   showMa?: boolean
-  /** FR-3.3/Этап 3: the latest live kline for the current bar (open or
-   * just-closed), applied via `series.update()` — never `setData()`, so a
-   * 1000 msg/sec live feed (NFR-1.5) doesn't re-diff/re-render the whole
-   * series on every tick. `null`/`undefined`: no live tick applied yet
-   * (e.g. freshly connected, or the historical load hasn't landed yet). */
+
   liveKline?: OhlcvRow | null
-  /** FR-3.5: called when the user has scrolled near the left edge of the
-   * loaded data; the parent is responsible for fetching and prepending
-   * more history to `data`. Never called again while a call is already
-   * "in flight" from the parent's perspective — that debouncing is the
-   * parent's job (it knows when its own fetch resolves), not this
-   * component's. */
+
   onLoadEarlier?: () => void
-  /** FR-5.3: set (with a fresh `nonce` each time — including re-clicking
-   * the same row, which wouldn't otherwise change `time`) to center the
-   * view on `time` (epoch ms) and drop a highlight marker on that bar. */
+
   jumpTarget?: { time: number; nonce: number } | null
-  /** `r` hotkey (FR-8.5): bump this to reset the view to fit all loaded
-   * data. Only the value *changing* matters, not what it is. */
+
   resetZoomNonce?: number
 }
 
@@ -75,8 +61,6 @@ function toVwapPoint(point: VwapPoint) {
   return { time: (point.openTime / 1000) as UTCTimestamp, value: point.vwap }
 }
 
-/** Same bar count and order as `rows`; `null` entries become gaps in the
- * line (Lightweight Charts skips a point whose `value` isn't finite). */
 function toMaSeries(rows: OhlcvRow[]) {
   const ma = simpleMovingAverage(rows, MA_WINDOW)
   return rows
@@ -84,13 +68,6 @@ function toMaSeries(rows: OhlcvRow[]) {
     .filter((point): point is { time: UTCTimestamp; value: number } => point.value !== null)
 }
 
-/** FR-3.1/FR-3.2: candlestick + volume, panning/zoom/crosshair are
- * Lightweight Charts defaults. FR-3.4: optional VWAP/MA(20) line overlays.
- * FR-3.5: scrolling near the left edge asks the parent for more history.
- * FR-4.2: this chart's visible range is published to/synced from every
- * other chart via `./sync`. FR-3.3: `props.liveKline` updates the last
- * bar via `series.update()`, entirely separate from the historical
- * `props.data` → `setData()` path below. */
 export function PriceChart(props: PriceChartProps) {
   const chartId = Symbol('price-chart')
   let container: HTMLDivElement | undefined
@@ -104,10 +81,7 @@ export function PriceChart(props: PriceChartProps) {
   let applyingExternalRange = false
   let previousRowCount = 0
   let previousLastOpenTime: number | undefined
-  // Mirrors `props.onLoadEarlier` for the imperative Lightweight Charts
-  // callback below, which isn't a tracked scope: reading `props.x`
-  // directly there would (rightly) trip the solid/reactivity lint rule,
-  // since Solid can't see that a plain closure re-reads it live.
+
   let onLoadEarlier: (() => void) | undefined
   createEffect(() => {
     onLoadEarlier = props.onLoadEarlier
@@ -165,17 +139,11 @@ export function PriceChart(props: PriceChartProps) {
       lastValueVisible: false,
     })
 
-    // FR-4.2: publish this chart's visible range so every other
-    // chart/panel follows along, unless the range change was *us*
-    // applying someone else's published range a moment ago.
     chart.timeScale().subscribeVisibleTimeRangeChange((range) => {
       if (range === null || applyingExternalRange || !gestures.wasRecentUserGesture()) return
       publishVisibleRange(chartId, { from: range.from as number, to: range.to as number })
     })
 
-    // FR-3.5: ask for more history once scrolled near the start of what's
-    // loaded. `barsInfo`/logical range is in bar-index space, not time, so
-    // this doesn't need to know the actual timestamps at all.
     chart.timeScale().subscribeVisibleLogicalRangeChange((range: LogicalRange | null) => {
       if (range === null) return
       if (range.from < LOAD_EARLIER_THRESHOLD_BARS) {
@@ -189,9 +157,6 @@ export function PriceChart(props: PriceChartProps) {
     })
   })
 
-  // FR-4.2: apply a range published by another chart/panel, unless we're
-  // the one who published it (checked via `origin`, not a value compare —
-  // two different charts could legitimately end up with the same range).
   createEffect(() => {
     const range = visibleRange()
     if (range === null || origin() === chartId || chart === undefined) return
@@ -209,38 +174,18 @@ export function PriceChart(props: PriceChartProps) {
   })
 
   createEffect(() => {
-    // `unwrap`: `props.data` (ultimately `@tanstack/solid-query`'s `data`)
-    // is backed by a Solid store proxy. Iterating it as a store — reading
-    // 5-8 fields per row across 50k+ rows — routes every field read
-    // through the store's reactive-tracking proxy trap; profiled at
-    // ~450ms of pure proxy overhead for a 50k-row set, the entire gap
-    // between this and the ~90ms actually spent in our own code (NFR-1.3
-    // needs the whole thing under 200ms). `unwrap` drops back to the
-    // plain, non-reactive array/objects for this one-shot bulk read —
-    // safe because nothing here needs to track individual field changes,
-    // only the top-level `props.data` identity (already tracked below).
     const rows = unwrap(props.data)
     if (candleSeries === undefined || volumeSeries === undefined || chart === undefined) return
 
     const upColor = cssToken('--color-up')
     const downColor = cssToken('--color-down')
 
-    // FR-3.5: distinguish "more history was prepended to the same
-    // series" (same last bar, more rows added at the front) from "a
-    // fresh symbol/interval/range load" (different last bar, or the very
-    // first load). Only the former should preserve the user's current
-    // viewport — the latter should fit-to-content like any new chart.
     const isHistoryPrepend =
       previousRowCount > 0 && rows.length > previousRowCount && rows.at(-1)?.openTime === previousLastOpenTime
 
     const priorLogicalRange = isHistoryPrepend ? chart.timeScale().getVisibleLogicalRange() : null
     const barCountDelta = rows.length - previousRowCount
 
-    // NFR-1.3 measures the candles' own first paint (<200ms for 50k bars)
-    // — the MA(20) overlay is a secondary layer, computed and applied one
-    // frame later so it can't push the primary content over budget. Was
-    // inline here originally; profiled at adding ~50-70ms on its own
-    // (a third full-size `setData()` call), enough to blow the budget.
     performance.mark('price-chart:set-data:start')
     candleSeries.setData(rows.map(toCandlestickPoint))
     volumeSeries.setData(rows.map((row) => toVolumePoint(row, upColor, downColor)))
@@ -251,12 +196,6 @@ export function PriceChart(props: PriceChartProps) {
         to: priorLogicalRange.to + barCountDelta,
       })
     } else {
-      // Not a prepend, so this is a different series (new symbol/interval
-      // or an empty result). Any highlight marker still on the chart
-      // points at a bar of the *old* series: visually it lingers over
-      // unrelated candles, and Lightweight Charts positions markers via
-      // `ensureNotNull(series.priceToCoordinate(...))`, which throws
-      // "Value is null" outright once the bar it refers to is gone.
       lastMarkerTime = undefined
       markers?.setMarkers([])
       chart.timeScale().fitContent()
@@ -272,7 +211,7 @@ export function PriceChart(props: PriceChartProps) {
         'price-chart:set-data:start',
         'price-chart:set-data:end',
       )
-      // NFR-1.3: first render of 50k candles must land under 200ms.
+
       console.debug(`[price-chart] setData(${rows.length} rows): ${measure.duration.toFixed(1)}ms`)
     }
 
@@ -281,14 +220,6 @@ export function PriceChart(props: PriceChartProps) {
     })
   })
 
-  // FR-3.3/Этап 3: the live path. `update()` both revises the in-progress
-  // last bar (repeated calls with the same `time`) and appends a new one
-  // once the interval rolls over (a later `time`) — either way, no
-  // re-render of the rest of the series. Guarded against firing before
-  // the first historical `setData()` (a live tick can technically arrive
-  // before the REST load resolves) and against an out-of-order tick
-  // (older than the bar the chart already shows) — Lightweight Charts
-  // throws on a `time` earlier than what's already in the series.
   createEffect(() => {
     const live = props.liveKline
     if (live === null || live === undefined) return
@@ -303,12 +234,6 @@ export function PriceChart(props: PriceChartProps) {
       volumeSeries.update(toVolumePoint(live, upColor, downColor))
       previousLastOpenTime = live.openTime
     } catch (error) {
-      // Lightweight Charts rejects a bad point by throwing, and this runs
-      // inside a reactive effect: an uncaught throw here propagates to the
-      // ErrorBoundary around the chart, which then shows its fallback
-      // until the page is reloaded — one malformed tick costing the whole
-      // panel. The historical series on screen is still valid, so drop the
-      // tick and keep the chart alive.
       console.error('[price-chart] dropped a live update the chart rejected', error)
     }
   })
@@ -321,12 +246,6 @@ export function PriceChart(props: PriceChartProps) {
     vwapSeries.setData(points)
   })
 
-  // FR-5.3: jump to (and highlight) a specific bar, e.g. from clicking an
-  // anomalies-table row. Keeps the current zoom span, just re-centers it
-  // — a deliberate user action, so (unlike the historical-load path)
-  // this *does* publish to `./sync`: the other panels following along
-  // here is the same "one view, many panels" idea FR-4.2 already covers
-  // for drag/wheel, just triggered a different way.
   createEffect(() => {
     const target = props.jumpTarget
     if (target == null || chart === undefined || markers === undefined) return
@@ -349,11 +268,6 @@ export function PriceChart(props: PriceChartProps) {
     applyingExternalRange = false
     publishVisibleRange(chartId, { from: newRange.from as number, to: newRange.to as number })
 
-    // Lightweight Charts renders everything (candles, the marker just
-    // set above) to a single <canvas> — nothing about a jump having
-    // actually applied is otherwise observable from outside this
-    // component. This attribute exists for that: e2e coverage of FR-5.3
-    // asserts on it rather than reaching into chart internals.
     container?.setAttribute('data-last-jump-nonce', String(target.nonce))
   })
 
@@ -362,14 +276,6 @@ export function PriceChart(props: PriceChartProps) {
     chart.timeScale().fitContent()
   })
 
-  // Этап 5 (DR-1/DR-4): re-paint already-created series when the theme or
-  // colorblind palette changes. Lightweight Charts bakes resolved color
-  // *strings* into the chart/series at creation time (`cssToken` above is
-  // a one-shot `getComputedStyle` read, not a live binding) — flipping
-  // the `data-theme`/`data-palette` attribute alone repaints nothing.
-  // `on(..., { defer: true })` skips the initial run: without it, this
-  // would fire once right after `onMount` with the same colors it was
-  // just created with — harmless, but pointless work on every mount.
   createEffect(
     on(
       [theme, colorblindPalette],
@@ -394,9 +300,6 @@ export function PriceChart(props: PriceChartProps) {
         vwapSeries?.applyOptions({ color: cssToken('--color-accent') })
         maSeries?.applyOptions({ color: cssToken('--color-fg-muted') })
 
-        // The highlight marker's color was fixed at click time (FR-5.3);
-        // if one is currently showing, refresh it too rather than leave
-        // it in the old theme's color until the next jump.
         if (lastMarkerTime !== undefined) {
           markers?.setMarkers([
             { time: lastMarkerTime, position: 'aboveBar', shape: 'arrowDown', color: downColor, size: 1.5 },

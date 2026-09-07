@@ -5,8 +5,6 @@ use chrono::NaiveDate;
 
 use crate::error::StorageError;
 
-/// Hive-partitioned directory for one (dataset, symbol, day) group, per
-/// FR-2.1: `data/{dataset}/symbol={symbol}/dt={YYYY-MM-DD}/`.
 pub fn partition_dir(data_root: &Path, dataset: &str, symbol: &str, dt: NaiveDate) -> PathBuf {
     data_root
         .join(dataset)
@@ -14,7 +12,6 @@ pub fn partition_dir(data_root: &Path, dataset: &str, symbol: &str, dt: NaiveDat
         .join(format!("dt={}", dt.format("%Y-%m-%d")))
 }
 
-/// Next unused `part-{NNNN}.parquet` index in `dir` (0 if none exist yet).
 pub fn next_part_index(dir: &Path) -> Result<u32, StorageError> {
     let mut max_idx: Option<u32> = None;
     if dir.exists() {
@@ -28,7 +25,6 @@ pub fn next_part_index(dir: &Path) -> Result<u32, StorageError> {
     Ok(max_idx.map_or(0, |m| m + 1))
 }
 
-/// Whether `dir` already holds any `part-*.parquet` file.
 pub fn has_existing_parts(dir: &Path) -> Result<bool, StorageError> {
     if !dir.exists() {
         return Ok(false);
@@ -49,8 +45,6 @@ fn parse_part_index(name: &str) -> Option<u32> {
         .ok()
 }
 
-/// All valid `part-NNNN.parquet` files in `dir`, sorted by index. Ignores
-/// anything else (in particular a stray `.tmp` from a crashed write).
 pub fn list_part_files(dir: &Path) -> Result<Vec<PathBuf>, StorageError> {
     let mut files: Vec<(u32, PathBuf)> = Vec::new();
     if dir.exists() {
@@ -66,10 +60,6 @@ pub fn list_part_files(dir: &Path) -> Result<Vec<PathBuf>, StorageError> {
     Ok(files.into_iter().map(|(_, p)| p).collect())
 }
 
-/// Every `dt=YYYY-MM-DD` partition directory under
-/// `data_root/dataset/symbol=*/`, optionally filtered to one symbol and/or
-/// one date (FR-2.5's `compact --symbol`/`--date`). With neither filter,
-/// returns every partition for `dataset`.
 pub fn discover_partitions(
     data_root: &Path,
     dataset: &str,
@@ -117,8 +107,6 @@ pub fn discover_partitions(
     Ok(out)
 }
 
-/// Recursively remove stray `*.tmp` files left behind by a process that
-/// crashed mid-write (NFR-2.1). Intended to run once at application startup.
 pub fn cleanup_incomplete_writes(data_root: &Path) -> Result<usize, StorageError> {
     let mut removed = 0usize;
     if !data_root.exists() {
@@ -141,11 +129,6 @@ pub fn cleanup_incomplete_writes(data_root: &Path) -> Result<usize, StorageError
     Ok(removed)
 }
 
-/// Escape a path for embedding as a single-quoted SQL string literal
-/// (e.g. inside `read_parquet('...')` / `COPY ... TO '...'`). The path
-/// itself is always built from our own validated components (never from
-/// raw, un-validated user/network input) — this is defense in depth, not a
-/// substitute for prepared-statement parameters on actual query values.
 pub fn sql_quote_path(path: &Path) -> String {
     path.to_string_lossy().replace('\'', "''")
 }

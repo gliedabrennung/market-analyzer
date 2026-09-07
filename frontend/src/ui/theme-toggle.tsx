@@ -3,10 +3,6 @@ import Sun from 'lucide-solid/icons/sun'
 import { colorblindPalette, setColorblindPalette, theme, toggleTheme } from '../state/theme'
 import { ToggleCheckbox } from './toggle-checkbox'
 
-/** FR-8.4/DR-1/DR-4: theme + colorblind-safe palette, both persisted
- * (`state/theme.ts`). A plain icon `<button>`, not a checkbox, for
- * theme — it reads as "switch to the other one," not a boolean setting
- * in the same sense as the indicator toggles next to it. */
 export function ThemeControls() {
   return (
     <div class="flex items-center gap-3 border-l border-[var(--color-border)] pl-4">

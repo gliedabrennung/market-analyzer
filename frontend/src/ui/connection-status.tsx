@@ -11,7 +11,6 @@ const LABELS: Record<ConnectionState, string> = {
   offline: 'Офлайн',
 }
 
-/** FR-2.2: connection state indicator (connecting/live/reconnecting/offline). */
 export function ConnectionStatus(props: ConnectionStatusProps) {
   return (
     <div class="flex items-center gap-1.5 text-xs text-[var(--color-fg-muted)]">

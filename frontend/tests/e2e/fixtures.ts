@@ -18,11 +18,6 @@ export interface FixtureCandle {
   volume: string
 }
 
-/** Builds an Arrow IPC stream byte-for-byte in the same shape
- * `ma_api::arrow_ipc::ToRecordBatch for OhlcvRow` produces (see
- * `crates/api/src/arrow_ipc.rs`) — verified against the real backend's
- * bytes during development, see the session notes. Used to mock
- * `/ohlcv/*` in e2e tests without needing a live backend. */
 export function buildOhlcvArrowIpc(candles: FixtureCandle[]): Uint8Array {
   const table = new Table({
     open_time: vectorFromArray(
@@ -75,8 +70,6 @@ export interface FixtureAnomaly {
   zScore: number
 }
 
-/** Same reasoning as `buildOhlcvArrowIpc` — matches
- * `ma_api::arrow_ipc::ToRecordBatch for VolumeAnomaly` byte-for-byte. */
 export function buildAnomaliesArrowIpc(anomalies: FixtureAnomaly[]): Uint8Array {
   const table = new Table({
     open_time: vectorFromArray(

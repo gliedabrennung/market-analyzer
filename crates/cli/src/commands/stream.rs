@@ -14,13 +14,6 @@ use crate::config::AppConfig;
 
 use super::{Dataset, StreamArgs};
 
-/// FR-1.4/FR-1.5: subscribe to Binance's combined live stream and write
-/// events to the Parquet layout, batched per FR-2.2, with graceful
-/// shutdown on SIGINT/SIGTERM (FR-6.4).
-///
-/// The CLI grammar (FR-4.1) has no `--interval` flag for `stream`; klines
-/// are streamed at `1m`, the finest granularity, matching `backfill`'s
-/// typical default.
 pub async fn run(args: StreamArgs, config: &AppConfig) -> Result<()> {
     let symbols: Vec<Symbol> = args
         .symbols
@@ -81,13 +74,7 @@ pub async fn run(args: StreamArgs, config: &AppConfig) -> Result<()> {
 
             maybe_event = event_stream.next() => {
                 match maybe_event {
-                    // The live kline stream re-emits the same still-forming
-                    // candle roughly once a second (same open_time, growing
-                    // o/h/l/c/v) until it closes. Parquet files are
-                    // immutable, so a partial snapshot written now could
-                    // never be corrected later — the dedup key would just
-                    // see `open_time` already on disk and skip the real,
-                    // final update forever. Only persist once `is_closed`.
+
                     Some(Ok(MarketEvent::Kline(k))) if !k.is_closed => {}
                     Some(Ok(MarketEvent::Kline(k))) => {
                         kline_buf.push(k);
@@ -101,9 +88,7 @@ pub async fn run(args: StreamArgs, config: &AppConfig) -> Result<()> {
                             flush_trades(&trade_store, &meta, exchange.id(), &mut trade_buf)?;
                         }
                     }
-                    // No FR/data-model table stores order-book depth; the
-                    // exchange abstraction can subscribe to it (FR-1.4) but
-                    // `stream`'s two datasets are only trades/klines (FR-4.1).
+
                     Some(Ok(MarketEvent::DepthUpdate(_))) => {}
                     Some(Err(e)) => tracing::warn!(error = %e, "stream event error"),
                     None => {
@@ -134,10 +119,6 @@ fn flush_klines(
     let fetched = batch.len();
     let written = store.write_klines(&batch).context("writing kline batch")?;
     if written > 0 {
-        // See `backfill`: on a fresh data directory the view could not be
-        // created when the store was opened, and only a writer can create
-        // it — so a long-running `stream` is otherwise the one process that
-        // fills the directory while leaving the API unable to see any of it.
         meta.ensure_views()
             .context("creating meta.duckdb views over the new Parquet files")?;
     }

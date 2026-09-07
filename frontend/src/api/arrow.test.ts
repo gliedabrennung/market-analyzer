@@ -18,9 +18,6 @@ import {
   parseVwapArrow,
 } from './arrow'
 
-/** Builds the same column layout `ma_api::arrow_ipc::ToRecordBatch for
- * OhlcvRow` produces (crates/api/src/arrow_ipc.rs) — schema was verified
- * against the real backend's bytes during development. */
 function buildIpc(
   rows: {
     openTime: number

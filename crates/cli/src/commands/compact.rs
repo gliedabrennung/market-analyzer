@@ -6,8 +6,6 @@ use crate::config::AppConfig;
 
 use super::CompactArgs;
 
-/// FR-2.5: merge every partition's `part-*.parquet` files into one. With no
-/// filters, sweeps every partition in both datasets.
 pub fn run(args: CompactArgs, config: &AppConfig) -> Result<()> {
     let symbol_filter = args.symbol.as_deref();
     let date_filter = args.date;

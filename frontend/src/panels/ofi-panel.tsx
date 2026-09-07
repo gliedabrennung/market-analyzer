@@ -12,11 +12,6 @@ const BUCKET_SECONDS = 60
 const LOOKBACK_HOURS = 24
 const MS_PER_HOUR = 60 * 60 * 1000
 
-/** FR-4.1: Order Flow Imbalance panel. Unlike vwap/volatility/anomalies,
- * `/analytics/{symbol}/ofi` *does* take a `from`/`to` range (it reads the
- * `trades` dataset, not klines) — OFI is a microstructure indicator, a
- * fixed lookback window makes more sense here than mirroring the main
- * chart's (potentially 30-day) range. */
 export function OfiPanel(props: OfiPanelProps) {
   const range = createMemo(() => {
     const to = new Date()
@@ -43,6 +38,4 @@ export function OfiPanel(props: OfiPanelProps) {
   )
 }
 
-// `solid-js`'s `lazy()` (app.tsx: off by default, state/settings.ts) needs
-// a default export.
 export default OfiPanel

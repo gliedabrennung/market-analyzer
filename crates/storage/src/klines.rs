@@ -15,23 +15,6 @@ const DATASET: &str = "klines";
 
 type DedupKey = (String, String, i64);
 
-/// Writes `Kline`s to the Parquet/hive layout from FR-2.1, deduplicating
-/// against whatever is already on disk (FR-2.3) so re-running the same
-/// backfill never duplicates rows (NFR-2.3).
-///
-/// Writing goes through an in-memory DuckDB connection used purely as a
-/// SQL-to-Parquet engine (architecture §3.4 variant A) — it never touches
-/// `meta.duckdb` and is unrelated to the NFR-4.1 single-writer rule, which
-/// governs the metabase file, not Parquet files.
-///
-/// The dedup key set for a partition is read from disk at most once per
-/// process lifetime and kept in memory after that (`dedup_cache`), updated
-/// in place as new rows are written. A long-running `stream` process calls
-/// `write_klines` far more often than `backfill` does (every flush, for
-/// hours), and that partition's Parquet files only grow over the session —
-/// re-scanning them from disk on every flush would make each flush cost
-/// grow with everything written so far (measured: RSS climbing over
-/// minutes of a real 20-symbol stream instead of leveling off).
 pub struct KlineStore {
     data_root: PathBuf,
     engine: Connection,
@@ -39,7 +22,6 @@ pub struct KlineStore {
 }
 
 impl KlineStore {
-    /// Opens the in-memory DuckDB engine used to write into `data_root`.
     pub fn new(data_root: impl Into<PathBuf>) -> Result<Self, StorageError> {
         let engine = Connection::open_in_memory()?;
         Ok(Self {
@@ -49,9 +31,6 @@ impl KlineStore {
         })
     }
 
-    /// Write `klines`, skipping rows that already exist on disk under the
-    /// `(exchange, interval, open_time)` dedup key (FR-2.3). Returns the
-    /// number of rows actually written.
     pub fn write_klines(&self, klines: &[Kline]) -> Result<usize, StorageError> {
         if klines.is_empty() {
             return Ok(0);
@@ -106,20 +85,12 @@ impl KlineStore {
         let tmp_path = dir.join(format!("part-{index:04}.parquet.tmp"));
 
         self.copy_to_parquet(&fresh, &tmp_path)?;
-        // Atomic-ish: readers only ever see the final, fully-written name;
-        // a crash before rename leaves a `.tmp` cleaned up at next startup
-        // (NFR-2.1).
+
         fs::rename(&tmp_path, &final_path)?;
 
         Ok(fresh.len())
     }
 
-    /// Takes ownership of the cached dedup set for `dir` (loading it from
-    /// disk on first touch), leaving the cache momentarily without an entry
-    /// for it — the caller is expected to insert the (possibly updated) set
-    /// back in. Structured this way (`remove` + reinsert, no `get_mut`) so
-    /// there is no fallible-lookup-after-ensuring-presence step that would
-    /// need an `unwrap`/`expect` (NFR-3.4 forbids both in library code).
     fn take_dedup_set(&self, dir: &Path) -> Result<HashSet<DedupKey>, StorageError> {
         if let Some(set) = self.dedup_cache.borrow_mut().remove(dir) {
             return Ok(set);
@@ -146,13 +117,6 @@ impl KlineStore {
         Ok(set)
     }
 
-    /// Bulk-loads `klines` into a staging table and copies it out to
-    /// Parquet. Money columns are staged as `VARCHAR` and cast to `DECIMAL`
-    /// only in the final `COPY ... SELECT`, because the DuckDB `Appender`
-    /// (the fast bulk-load path — a row-by-row `INSERT`, each in its own
-    /// implicit transaction, measured at minutes for tens of thousands of
-    /// rows and would blow NFR-1.5) does not target typed `DECIMAL` columns
-    /// directly.
     fn copy_to_parquet(&self, klines: &[&Kline], dest: &Path) -> Result<(), StorageError> {
         self.engine.execute_batch(
             "CREATE OR REPLACE TEMP TABLE staging_klines (
@@ -272,7 +236,6 @@ mod tests {
         let written_first = store.write_klines(&klines).unwrap();
         assert_eq!(written_first, 5);
 
-        // Re-running the exact same backfill must not duplicate rows.
         let written_second = store.write_klines(&klines).unwrap();
         assert_eq!(written_second, 0);
 
@@ -317,11 +280,6 @@ mod tests {
         assert_eq!(store.write_klines(&[]).unwrap(), 0);
     }
 
-    /// Simulates a long-running `stream` process: many small, separate
-    /// flushes into the *same* partition (unlike a single backfill batch).
-    /// Each call must still dedup correctly against everything written by
-    /// earlier calls in this process, via the in-memory cache rather than a
-    /// disk re-scan per call.
     #[test]
     fn many_sequential_flushes_into_same_partition_dedup_correctly() {
         let tmp = tempdir().unwrap();
@@ -329,8 +287,6 @@ mod tests {
         let base = Utc.with_ymd_and_hms(2026, 8, 1, 0, 0, 0).unwrap();
 
         for minute in 0..20i64 {
-            // Each flush re-sends the previous minute too (as a live kline
-            // stream's own reconnect-gap overlap might), plus one new one.
             let batch = vec![kline_at(base, minute), kline_at(base, minute + 1)];
             let written = store.write_klines(&batch).unwrap();
             let expected = if minute == 0 { 2 } else { 1 };
@@ -350,10 +306,6 @@ mod tests {
         assert_eq!(count_parquet_rows(&check_engine, &dir), 21);
     }
 
-    /// One month of 1m candles (44_640 rows, spanning 31 daily partitions)
-    /// must write well within NFR-1.5's year-per-5-minutes budget. Guards
-    /// against regressing to a row-by-row INSERT, which measured at
-    /// several minutes for this same input.
     #[test]
     fn writes_one_month_of_1m_candles_quickly() {
         let tmp = tempdir().unwrap();

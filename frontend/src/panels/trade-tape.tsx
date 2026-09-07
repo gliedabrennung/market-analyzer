@@ -17,15 +17,7 @@ function formatTime(ts: number): string {
   return `${hh}:${mm}:${ss}.${ms}`
 }
 
-/** FR-7.1/7.2/7.3: virtualized trade tape — newest first, ≤500 in memory
- * (capped upstream by `useLiveStream`), only visible rows in the DOM.
- * Autoscrolls to new trades unless the user has scrolled down to look at
- * older ones, in which case a "jump to latest" button resumes it — per
- * FR-7.3, only the button re-enables autoscroll, not scrolling back up
- * manually. */
 export function TradeTape(props: TradeTapeProps) {
-  // Newest-first for display; `props.trades` itself stays chronological
-  // (oldest→newest) end-to-end elsewhere in the app.
   const rows = () => props.trades.slice().reverse()
 
   const [autoScroll, setAutoScroll] = createSignal(true)
@@ -63,7 +55,7 @@ export function TradeTape(props: TradeTapeProps) {
   }
 
   createEffect(() => {
-    rows() // track new trades arriving
+    rows()
     if (autoScroll()) scrollToTop()
   })
 
@@ -121,10 +113,4 @@ export function TradeTape(props: TradeTapeProps) {
   )
 }
 
-// `solid-js`'s `lazy()` (app.tsx) needs a default export. Lazy despite
-// being the default-shown sidebar tab: it starts empty regardless (no
-// history endpoint for trades, only the live feed), so a brief chunk-load
-// delay here is faster than the wait for the first real trade anyway —
-// worth it to keep `@tanstack/solid-virtual` out of the critical bundle
-// (NFR-1.1's initial-chunk budget).
 export default TradeTape

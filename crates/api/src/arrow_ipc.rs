@@ -1,8 +1,3 @@
-//! Arrow IPC stream responses (frontend-tz.md BE-1/FR-1.1): the same rows
-//! the JSON handlers already return, laid out as Arrow columns instead, for
-//! clients that ask for it via `Accept`. JSON stays the default and the
-//! `FR-1.2` fallback target — Arrow is strictly additive.
-
 use std::sync::Arc;
 
 use arrow::array::{
@@ -22,9 +17,6 @@ use crate::error::ApiError;
 
 pub const ARROW_IPC_CONTENT_TYPE: &str = "application/vnd.apache.arrow.stream";
 
-/// Whether the client asked for Arrow IPC via `Accept` (frontend-tz.md
-/// FR-1.1). Anything else — including no `Accept` at all — gets JSON;
-/// Arrow is opt-in, JSON is always the safe default.
 pub fn wants_arrow(headers: &HeaderMap) -> bool {
     headers
         .get(header::ACCEPT)
@@ -32,10 +24,6 @@ pub fn wants_arrow(headers: &HeaderMap) -> bool {
         .is_some_and(|v| v.contains(ARROW_IPC_CONTENT_TYPE))
 }
 
-/// A row type that can be laid out as Arrow columns. Per frontend-tz.md
-/// section 2.3, `Decimal` fields become `Utf8` columns, never a float
-/// column — the client reads them as strings into `decimal.js-light`,
-/// never through `parseFloat`.
 pub trait ToRecordBatch {
     fn arrow_schema() -> SchemaRef;
 
@@ -44,10 +32,6 @@ pub trait ToRecordBatch {
         Self: Sized;
 }
 
-/// Serializes `rows` as an Arrow IPC stream when the client asked for it
-/// (frontend-tz.md FR-1.1), else falls back to the plain JSON response
-/// (FR-1.2's fallback target — so this is the only branch point, nothing
-/// downstream needs to know which format was chosen).
 pub fn respond_rows<T>(headers: &HeaderMap, rows: Vec<T>) -> Result<Response, ApiError>
 where
     T: Serialize + ToRecordBatch,
@@ -317,9 +301,7 @@ mod tests {
             .as_any()
             .downcast_ref::<StringArray>()
             .unwrap();
-        // A precision-preserving round trip is the entire point of not
-        // sending Decimal columns as a float: the value must survive
-        // exactly, not "close enough".
+
         assert_eq!(open_col.value(0), "100.00000001");
     }
 }

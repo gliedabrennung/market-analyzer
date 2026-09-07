@@ -2,19 +2,16 @@ import type { Interval, OhlcvRow } from '../api/types'
 
 export type ConnectionState = 'connecting' | 'live' | 'reconnecting' | 'offline'
 
-/** One trade tick, FR-7.1's fields (время/цена/объём/сторона агрессора). */
 export interface LiveTrade {
   ts: number
   tradeId: number
   price: number
   qty: number
-  /** `true`: the aggressor (taker) was the seller. Matches `ma_core::Trade`. */
+
   isBuyerMaker: boolean
 }
 
 export interface LiveSocketHandlers {
-  /** `symbol`/`interval` are the frame's own, not the subscription's — the
-   * consumer checks them against what it is currently displaying. */
   onTrade: (symbol: string, trade: LiveTrade) => void
   onKline: (symbol: string, interval: string, row: OhlcvRow) => void
   onStateChange: (state: ConnectionState) => void
@@ -35,25 +32,11 @@ export type ParsedMessage =
   | { kind: 'kline'; symbol: string; interval: string; row: OhlcvRow }
   | { kind: 'heartbeat' }
 
-/** Every numeric field a chart consumes has to be a real number. A frame
- * missing one (or carrying something unparseable) yields `NaN` here, and
- * Lightweight Charts rejects `NaN` by *throwing* from inside the effect
- * that applies it — which takes the whole chart panel down until a page
- * reload. Dropping the frame instead costs one tick. */
 function finite(value: unknown): number | null {
   const n = typeof value === 'string' ? Number.parseFloat(value) : Number(value)
   return Number.isFinite(n) ? n : null
 }
 
-/** Parses one `/stream/{symbol}` WS text frame (frontend-tz.md BE-5:
- * `{"type": "trade" | "kline" | "heartbeat", ...}`, verified against the
- * real backend's bytes during development — see `ma_core::MarketEvent`'s
- * `#[serde(tag = "type")]`). Decimal fields (price/qty/OHLCV) arrive as
- * strings, same reasoning as the REST Arrow columns (frontend-tz.md
- * §2.3) — parsed to `number` here since this only ever feeds chart
- * rendering. Returns `null` for anything unrecognized rather than
- * throwing — a forward-compatible new message `type` shouldn't kill the
- * connection. */
 export function parseLiveMessage(raw: string): ParsedMessage | null {
   let obj: unknown
   try {
@@ -123,14 +106,6 @@ export function parseLiveMessage(raw: string): ParsedMessage | null {
   return null
 }
 
-/** FR-2.1/2.2: connects to `/stream/{symbol}`, reconnecting with
- * exponential backoff (base 500ms, ×2, capped at 15s, unlimited retries)
- * on any close/error that wasn't a deliberate `close()` call. The backoff
- * resets to base once a connection actually opens.
- *
- * Framework-agnostic (plain callbacks, no Solid) — `../stream/useLiveStream`
- * wires this into reactive state and rAF batching.
- */
 export function connectLiveSocket(
   symbol: string,
   interval: Interval,
@@ -150,9 +125,6 @@ export function connectLiveSocket(
     }
 
     socket.onmessage = (event) => {
-      // A frame can already be queued when `close()` is called (switching
-      // symbols does exactly that), and delivering it afterwards feeds the
-      // *previous* pair's data to the handlers now wired to the new one.
       if (deliberatelyClosed) return
       const parsed = parseLiveMessage(event.data as string)
       if (parsed === null || parsed.kind === 'heartbeat') return
@@ -165,8 +137,6 @@ export function connectLiveSocket(
       scheduleReconnect()
     }
 
-    // A WebSocket error is always followed by its close event — let
-    // onclose be the single place that decides to reconnect.
     socket.onerror = () => {}
   }
 

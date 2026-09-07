@@ -1,15 +1,3 @@
-//! Load test for the Этап 4 acceptance criterion: "100 RPS on `/ohlcv`
-//! holds without a growing error rate." Builds the real app in-process
-//! (against real local data from earlier stages) and drives it with a
-//! connection-reusing `reqwest::Client` — a `curl` process per request was
-//! tried first and the *client* became the bottleneck (~69 RPS) long
-//! before the server would have.
-//!
-//! Depends on local state (`data/meta.duckdb` from a prior `backfill`),
-//! not just network, so it is `#[ignore]`d like the other real-dependency
-//! tests in this workspace. Run in release for a representative number:
-//!   cargo test -p ma-api --release --test load_test -- --ignored --nocapture
-
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -62,15 +50,6 @@ async fn sustains_100_rps_on_ohlcv_without_growing_errors() {
     let start = Instant::now();
     let deadline = start + Duration::from_secs(DURATION_SECS);
 
-    // CONCURRENCY workers, each pacing itself to TARGET_RPS/CONCURRENCY
-    // req/sec, for TARGET_RPS in aggregate — deliberately fewer than
-    // TARGET_RPS *simultaneous* in-flight requests. 100 fully independent
-    // concurrent workers (each doing 1 req/s) measured *worse* throughput
-    // than this despite a bigger DB pool, i.e. the ceiling here is
-    // something that gets worse with raw concurrent-connection count, not
-    // with request rate — plausibly many separate DuckDB read-only handles
-    // to the same file contending internally. Rate, not raw concurrency,
-    // is what FR-5.1's "100 RPS" actually asks for.
     let per_worker_interval = Duration::from_secs_f64(CONCURRENCY as f64 / TARGET_RPS as f64);
     let mut workers = Vec::new();
     for _ in 0..CONCURRENCY {

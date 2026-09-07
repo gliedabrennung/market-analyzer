@@ -1,22 +1,17 @@
-//! HTTP API (FR-5.x): `axum` over a pooled read-only DuckDB connection
-//! (FR-5.4: all synchronous DuckDB work runs in `spawn_blocking`).
-
-/// Arrow IPC stream responses (frontend-tz.md BE-1) alongside the existing
-/// JSON ones — [`arrow_ipc::respond_rows`] picks the format from `Accept`.
 pub mod arrow_ipc;
-/// [`ApiError`]: the FR-5.2 JSON error envelope and its HTTP status mapping.
+
 pub mod error;
-/// [`metrics::Metrics`] (Prometheus registry) and the request-tracking middleware (FR-6.3).
+
 pub mod metrics;
-/// [`DbPool`]: checkout/return pool of read-only DuckDB handles (FR-5.4).
+
 pub mod pool;
-/// `/ohlcv`'s row type and query — the one endpoint with no `ma_analytics` equivalent.
+
 pub mod queries;
-/// The FR-5.1 HTTP/WS route handlers.
+
 pub mod routes;
-/// [`AppState`]/[`ApiLimits`]: shared server state and validation bounds.
+
 pub mod state;
-/// FR-5.3 input validation, run before any DB/analytics call.
+
 pub mod validation;
 
 use std::sync::Arc;
@@ -34,11 +29,6 @@ pub use error::ApiError;
 pub use pool::DbPool;
 pub use state::{ApiLimits, AppState};
 
-/// Builds the full router. `serve` (the CLI command) owns binding a
-/// listener and running it with graceful shutdown. `cors_origin` is the
-/// single allowed `Access-Control-Allow-Origin` (frontend-tz.md BE-2) —
-/// the frontend is a single first-party client, so one configured origin
-/// rather than a wildcard or a dynamic allowlist.
 pub fn build_app(
     pool: DbPool,
     exchange: BinanceSpot,

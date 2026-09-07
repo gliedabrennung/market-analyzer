@@ -1,17 +1,12 @@
 import { expect, test } from '@playwright/test'
 import { buildOhlcvArrowIpc, makeFixtureCandles } from './fixtures.ts'
 
-// Scratch space for the PerformanceObserver callback in the NFR-1.4 test
-// below — declared globally (not `as any`) so the `page.evaluate` source
-// still type-checks against NFR-2.2 (`any` only in explicitly-marked
-// interop spots).
 declare global {
   interface Window {
     __longTaskDurations: number[]
   }
 }
 
-// FR-7.1's wire shape (frontend-tz.md BE-5), same as live-stream.spec.ts.
 function tradeFrame(tradeId: number, price: string, isBuyerMaker: boolean): string {
   return JSON.stringify({
     type: 'trade',
@@ -25,36 +20,19 @@ function tradeFrame(tradeId: number, price: string, isBuyerMaker: boolean): stri
   })
 }
 
-// NFR-1.3 (frontend-tz.md §6.1): first render of 50,000 candles must land
-// under 200ms, measured via `performance.mark`/`measure` bracketing
-// `src/charts/price-chart.tsx`'s `setData()` calls. Reads the marks
-// directly (not the dev-only console log — see `playwright.config.ts`,
-// this spec runs against a production build, where that log is stripped).
 test('renders 50,000 candles in under 200ms (NFR-1.3)', async ({ page }) => {
   await page.route('**/symbols', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }))
-  // The main chart's overlays/panels each fetch independently (FR-4.2/4.3)
-  // — keep them out of this test's way with a fast, empty response.
+
   await page.route('**/analytics/**', (route) =>
     route.fulfill({ contentType: 'application/json', body: '[]' }),
   )
 
   const allCandles = makeFixtureCandles(50_000)
   const today = new Date().toISOString().slice(0, 10)
-  // `fetchOhlcv` now paginates fully (endpoints.ts's `fetchAllPages`) since
-  // a single request is capped server-side at 10,000 rows — this mock
-  // must honor `limit`/`offset` the same way the real backend does, or
-  // the pagination loop never sees a short final page and never stops.
-  //
-  // Fitting all 50,000 candles on screen also puts the initial view near
-  // bar 0, which correctly fires FR-3.5's load-earlier-history fetch (a
-  // second, earlier-dated request) — respond to that with an empty page
-  // (`to` won't be `today`, see below), same reasoning as
-  // price-chart.spec.ts, or the same 50,000 rows would get prepended a
-  // second time, out of order.
+
   await page.route('**/ohlcv/**', (route) => {
     const url = new URL(route.request().url())
-    // The live window's `to` is an instant (see app.tsx's `range`), so it
-    // starts with today's date; an older window carries an earlier date.
+
     if (!(url.searchParams.get('to') ?? '').startsWith(today)) {
       route.fulfill({ contentType: 'application/json', body: '[]' })
       return
@@ -80,9 +58,6 @@ test('renders 50,000 candles in under 200ms (NFR-1.3)', async ({ page }) => {
   expect(durationMs).toBeLessThan(200)
 })
 
-// NFR-1.4: panning/zooming must hold 60fps — measured as "no Long Task
-// (>50ms) fires during the gesture," the same proxy the ТЗ names
-// ("Performance-профиль Chrome, без длинных задач > 50 мс").
 test('panning the chart does not trigger a long task (NFR-1.4)', async ({ page }) => {
   await page.route('**/symbols', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }))
   await page.route('**/analytics/**', (route) =>
@@ -92,8 +67,7 @@ test('panning the chart does not trigger a long task (NFR-1.4)', async ({ page }
   const today = new Date().toISOString().slice(0, 10)
   await page.route('**/ohlcv/**', (route) => {
     const url = new URL(route.request().url())
-    // The live window's `to` is an instant (see app.tsx's `range`), so it
-    // starts with today's date; an older window carries an earlier date.
+
     if (!(url.searchParams.get('to') ?? '').startsWith(today)) {
       route.fulfill({ contentType: 'application/json', body: '[]' })
       return
@@ -129,11 +103,6 @@ test('panning the chart does not trigger a long task (NFR-1.4)', async ({ page }
   expect(worst).toBeLessThan(50)
 })
 
-// NFR-1.5: 1000 WS messages/sec must not drop frames — `stream/buffer.ts`'s
-// rAF batching (FR-2.3) exists specifically for this. Fired as an instant
-// burst rather than metered over a real second: that's a *harder* version
-// of the same scenario (all backpressure hits in one animation-frame
-// window), and it exercises the same batching path either way.
 test('holds close to 60fps under a 1000-message WS burst (NFR-1.5)', async ({ page }) => {
   await page.route('**/symbols', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }))
   await page.route('**/analytics/**', (route) =>
@@ -142,8 +111,7 @@ test('holds close to 60fps under a 1000-message WS burst (NFR-1.5)', async ({ pa
   const today = new Date().toISOString().slice(0, 10)
   await page.route('**/ohlcv/**', (route) => {
     const url = new URL(route.request().url())
-    // The live window's `to` is an instant (see app.tsx's `range`), so it
-    // starts with today's date; an older window carries an earlier date.
+
     if (!(url.searchParams.get('to') ?? '').startsWith(today)) {
       route.fulfill({ contentType: 'application/json', body: '[]' })
       return
@@ -181,22 +149,10 @@ test('holds close to 60fps under a 1000-message WS burst (NFR-1.5)', async ({ pa
   }
 
   const fps = await fpsPromise
-  // 60fps is the target; a generous floor accounts for headless/CI/dev-
-  // machine scheduling noise unrelated to the app's own batching logic
-  // (the same reasoning perf.spec.ts's sibling tests already apply).
+
   expect(fps).toBeGreaterThan(50)
 })
 
-// NFR-1.7: heap growth over a full 1-hour live session should stay under
-// 15% — not something a test suite can run for real. This is a much
-// shorter, generously-thresholded proxy: force GC, flood several thousand
-// trades (far more than an hour of realistic traffic would deliver in
-// this many seconds), force GC again, and check *retained* heap growth is
-// bounded rather than scaling with message count — which is what FR-2.4's
-// buffer cap (trade tape: 500 entries) should guarantee structurally. It
-// can catch "something is unboundedly retained per message" but can't
-// certify the literal 15%/hour figure — see frontend/README.md's NFR
-// table for that caveat spelled out.
 test('heap growth stays bounded under a sustained trade flood (NFR-1.7, short proxy)', async ({
   page,
   context,
@@ -208,8 +164,7 @@ test('heap growth stays bounded under a sustained trade flood (NFR-1.7, short pr
   const today = new Date().toISOString().slice(0, 10)
   await page.route('**/ohlcv/**', (route) => {
     const url = new URL(route.request().url())
-    // The live window's `to` is an instant (see app.tsx's `range`), so it
-    // starts with today's date; an older window carries an earlier date.
+
     if (!(url.searchParams.get('to') ?? '').startsWith(today)) {
       route.fulfill({ contentType: 'application/json', body: '[]' })
       return
@@ -251,8 +206,6 @@ test('heap growth stays bounded under a sustained trade flood (NFR-1.7, short pr
   expect(growthRatio).toBeLessThan(0.5)
 })
 
-// NFR-1.8: re-selecting an interval whose data is already cached must not
-// re-hit the network (`main.tsx`'s `staleTime: 30_000`).
 test('switching back to a cached interval fires no new request (NFR-1.8)', async ({ page }) => {
   await page.route('**/symbols', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }))
   await page.route('**/analytics/**', (route) =>
@@ -265,8 +218,7 @@ test('switching back to a cached interval fires no new request (NFR-1.8)', async
     const url = new URL(route.request().url())
     const interval = url.searchParams.get('interval') ?? ''
     requestCounts[interval] = (requestCounts[interval] ?? 0) + 1
-    // The live window's `to` is an instant (see app.tsx's `range`), so it
-    // starts with today's date; an older window carries an earlier date.
+
     if (!(url.searchParams.get('to') ?? '').startsWith(today)) {
       route.fulfill({ contentType: 'application/json', body: '[]' })
       return
@@ -286,7 +238,7 @@ test('switching back to a cached interval fires no new request (NFR-1.8)', async
 
   await page.getByRole('button', { name: '1m', exact: true }).click()
   await expect.poll(() => new URL(page.url()).searchParams.get('interval')).toBe('1m')
-  // Give a would-be refetch a moment to fire before asserting its absence.
+
   await page.waitForTimeout(300)
 
   expect(requestCounts['1m']).toBe(firstVisitRequests)

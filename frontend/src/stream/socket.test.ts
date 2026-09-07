@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseLiveMessage } from './socket'
 
-// Captured live from the real backend during development (`ws://.../stream/BTCUSDT?interval=1m`)
-// — not hand-written fixtures, the actual `ma_core::MarketEvent` serde
-// output (frontend-tz.md BE-5).
 const REAL_TRADE_FRAME =
   '{"type":"trade","ts":"2026-09-07T07:58:56.971Z","symbol":"BTCUSDT","exchange":"binance","trade_id":6660754743,"price":"79400.00000000","qty":"0.00037000","is_buyer_maker":false}'
 
@@ -61,10 +58,6 @@ describe('parseLiveMessage', () => {
     expect(parseLiveMessage('{"type":"something_future"}')).toBeNull()
   })
 
-  // Lightweight Charts throws on a non-finite value ("Assertion failed:
-  // ... value=NaN"), and it throws from inside the effect that applies the
-  // tick — taking the whole chart panel down until the page is reloaded.
-  // A frame that cannot produce real numbers must be dropped here instead.
   it('drops a frame with an unparseable number instead of yielding NaN', () => {
     const broken = REAL_KLINE_FRAME.replace('"close":"79399.99000000"', '"close":"n/a"')
     expect(parseLiveMessage(broken)).toBeNull()
@@ -75,8 +68,6 @@ describe('parseLiveMessage', () => {
     expect(parseLiveMessage(broken)).toBeNull()
   })
 
-  // The consumer filters by these before applying anything to the chart:
-  // a frame from the pair being switched away from must be identifiable.
   it('reports which symbol and interval a frame belongs to', () => {
     const parsed = parseLiveMessage(REAL_KLINE_FRAME)
     expect(parsed).toMatchObject({ symbol: 'BTCUSDT', interval: '1m' })

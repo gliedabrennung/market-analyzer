@@ -4,16 +4,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::CoreError;
 
-/// Validated trading pair identifier, e.g. `BTCUSDT`.
-///
-/// Restricted to uppercase ASCII alphanumerics so it is always safe to use
-/// as a path segment (hive partition directory name) without further escaping.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct Symbol(String);
 
 impl Symbol {
-    /// Validates `raw` (1-32 uppercase ASCII alphanumerics) and wraps it.
     pub fn new(raw: &str) -> Result<Self, CoreError> {
         let is_valid = !raw.is_empty()
             && raw.len() <= 32
@@ -27,7 +22,6 @@ impl Symbol {
         }
     }
 
-    /// The validated symbol string, e.g. `"BTCUSDT"`.
     pub fn as_str(&self) -> &str {
         &self.0
     }

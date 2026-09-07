@@ -1,11 +1,3 @@
-//! Real-network integration test for FR-1.5 (reconnect + mandatory REST
-//! gap-fill). The WebSocket leg is a local mock server we fully control (so
-//! a hard disconnect can be forced deterministically); the gap-fill leg
-//! calls the real Binance REST API. Per TZ §7 unit tests must not touch the
-//! network, so this is `#[ignore]`d — run explicitly with:
-//!
-//!   cargo test -p ma-exchanges --test reconnect_gapfill -- --ignored --nocapture
-
 use std::time::Duration;
 
 use chrono::{DateTime, Duration as ChronoDuration, TimeZone, Utc};
@@ -49,18 +41,13 @@ async fn forced_disconnect_triggers_gapfill_and_resumes() {
 
     let symbol = Symbol::new("BTCUSDT").unwrap();
     let now = Utc::now();
-    // A window comfortably in the past-but-recent, so both the synthetic
-    // pre-drop event and the real REST gap-fill land on real market data
-    // that Binance will actually serve.
+
     let pre_drop_open = trunc_ms(now - ChronoDuration::minutes(6));
     let gap_upper_bound = trunc_ms(now - ChronoDuration::minutes(2));
     let post_reconnect_open = trunc_ms(now - ChronoDuration::minutes(1));
 
     let server_symbol = symbol.clone();
     let server = tokio::spawn(async move {
-        // First connection: one closed 1m kline, then an abrupt hangup
-        // (dropped, no WS close handshake) to simulate a real connection
-        // break.
         let (tcp, _) = listener.accept().await.unwrap();
         let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
         ws.send(Message::Text(kline_message(
@@ -72,8 +59,6 @@ async fn forced_disconnect_triggers_gapfill_and_resumes() {
         .unwrap();
         drop(ws);
 
-        // Second connection (the client reconnecting): one more event,
-        // proving live flow resumes after gap-fill.
         let (tcp2, _) = listener.accept().await.unwrap();
         let mut ws2 = tokio_tungstenite::accept_async(tcp2).await.unwrap();
         ws2.send(Message::Text(kline_message(

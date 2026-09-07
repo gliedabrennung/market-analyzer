@@ -24,7 +24,6 @@ pub struct WindowQuery {
     pub offset: Option<i64>,
 }
 
-/// `GET /analytics/{symbol}/vwap` (FR-5.1, default window 20 per FR-3.2).
 pub async fn vwap(
     State(state): State<Arc<AppState>>,
     Path(symbol): Path<String>,
@@ -52,7 +51,6 @@ pub async fn vwap(
     respond_rows(&headers, validation::paginate(rows, limit, offset))
 }
 
-/// `GET /analytics/{symbol}/volatility` (FR-5.1, default window 20 per FR-3.3).
 pub async fn volatility(
     State(state): State<Arc<AppState>>,
     Path(symbol): Path<String>,
@@ -89,7 +87,6 @@ pub struct AnomaliesQuery {
     pub offset: Option<i64>,
 }
 
-/// `GET /analytics/{symbol}/anomalies` (FR-5.1, defaults window 100 / threshold 3.0 per FR-3.4).
 pub async fn anomalies(
     State(state): State<Arc<AppState>>,
     Path(symbol): Path<String>,
@@ -128,7 +125,6 @@ pub struct OfiQuery {
     pub offset: Option<i64>,
 }
 
-/// `GET /analytics/{symbol}/ofi` (FR-5.1, default 60s bucket per FR-3.5).
 pub async fn ofi(
     State(state): State<Arc<AppState>>,
     Path(symbol): Path<String>,
@@ -166,7 +162,6 @@ pub struct CorrelationQuery {
     pub interval: Option<String>,
 }
 
-/// `GET /analytics/correlation` (FR-5.1). `symbols` is a comma-separated list.
 pub async fn correlation(
     State(state): State<Arc<AppState>>,
     Query(q): Query<CorrelationQuery>,

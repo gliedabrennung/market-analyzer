@@ -8,19 +8,15 @@ use ma_core::{Interval, Symbol};
 use crate::error::AnalyticsError;
 use crate::rowutil::{decimal_col, timestamp_col};
 
-/// One detected volume anomaly (FR-3.4).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct VolumeAnomaly {
     pub open_time: DateTime<Utc>,
-    /// Stored trade volume, so `Decimal`, never `f64`.
+
     pub volume: Decimal,
-    /// A genuinely-derived statistic (standard scores over log-free window
-    /// stats), not a stored quantity — `f64` is correct here.
+
     pub z_score: f64,
 }
 
-/// Bars whose volume z-score (relative to the preceding `window` bars,
-/// excluding itself) exceeds `threshold` (defaults 100 / 3.0 per FR-3.4).
 pub fn volume_anomalies(
     conn: &Connection,
     exchange: &str,
@@ -90,11 +86,6 @@ mod tests {
 
     #[test]
     fn zero_variance_baseline_yields_no_anomaly_not_a_crash() {
-        // Baseline of 10,10,10,10,10 has zero stddev; nullif(sd_vol, 0)
-        // makes z_score NULL for the following point regardless of its
-        // volume, and `NULL > threshold` is not true in SQL — so a spike
-        // must NOT be (falsely) flagged here. Real detection over a
-        // *varying* baseline is asserted numerically in the next test.
         let conn = setup(&["10", "10", "10", "10", "10", "1000"]);
         let symbol = Symbol::new("BTCUSDT").unwrap();
         let anomalies =
@@ -104,8 +95,6 @@ mod tests {
 
     #[test]
     fn z_score_matches_hand_computation() {
-        // Baseline 8,10,12,10,10 (mean=10, sample stddev = sqrt(2)) then a
-        // spike of 20: z = (20-10)/sqrt(2) ≈ 7.0710678.
         let conn = setup(&["8", "10", "12", "10", "10", "20"]);
         let symbol = Symbol::new("BTCUSDT").unwrap();
         let anomalies =

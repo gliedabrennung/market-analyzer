@@ -1,6 +1,5 @@
 use thiserror::Error;
 
-/// Errors produced by domain-level validation in `ma-core`.
 #[derive(Debug, Error)]
 pub enum CoreError {
     #[error("invalid symbol '{0}': must be 1-32 uppercase ASCII alphanumeric characters")]

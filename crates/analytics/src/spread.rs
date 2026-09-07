@@ -8,7 +8,6 @@ use ma_core::{Interval, Symbol};
 use crate::error::AnalyticsError;
 use crate::rowutil::{decimal_col, timestamp_col};
 
-/// One matched point of a cross-series spread (FR-3.7).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SpreadPoint {
     pub ts: DateTime<Utc>,
@@ -18,10 +17,6 @@ pub struct SpreadPoint {
     pub spread_bps: Option<f64>,
 }
 
-/// Matches series A against the most recent point of series B at or before
-/// each A timestamp (`ASOF JOIN`, FR-3.7) and computes the spread both in
-/// absolute price terms and in basis points. A and B may be the same or
-/// different exchanges/symbols/intervals.
 #[allow(clippy::too_many_arguments)]
 pub fn cross_spread(
     conn: &Connection,
@@ -80,8 +75,7 @@ mod tests {
                          CAST('1' AS DECIMAL(28,8)), CAST('1' AS DECIMAL(28,8)), 1, true)",
             )
             .unwrap();
-        // A: BTCUSDT@binance at 00:00 and 00:01, price 100 then 102.
-        // B: BTCUSDT@bybit at 00:00 only, price 99 (older, so ASOF-matches both A rows).
+
         for (ts, symbol, exchange, price) in [
             ("2026-01-01 00:00:00", "BTCUSDT", "binance", "100"),
             ("2026-01-01 00:01:00", "BTCUSDT", "binance", "102"),
@@ -116,7 +110,6 @@ mod tests {
         assert_eq!(points[0].spread_abs, Decimal::from_str("1").unwrap());
         assert!((points[0].spread_bps.unwrap() - (1.0 / 99.0 * 10000.0)).abs() < 1e-6);
 
-        // Second A point ASOF-matches the SAME (only) B point.
         assert_eq!(points[1].price_a, Decimal::from_str("102").unwrap());
         assert_eq!(points[1].price_b, Decimal::from_str("99").unwrap());
         assert_eq!(points[1].spread_abs, Decimal::from_str("3").unwrap());

@@ -20,16 +20,10 @@ function readFromUrl(): { symbol: string; interval: Interval } {
 
 const initial = readFromUrl()
 
-/** FR-8.3: symbol/interval selection, mirrored into the URL so a copied
- * link reproduces the same view and the browser back/forward buttons work.
- */
 export const [symbol, setSymbol] = createSignal(initial.symbol)
 export const [interval, setInterval] = createSignal<Interval>(initial.interval)
 
 createRoot(() => {
-  // `defer: true`: don't rewrite the URL on initial load, only on an
-  // actual selection change — otherwise every load does a needless
-  // pushState even when nothing changed.
   createEffect(
     on(
       [symbol, interval],

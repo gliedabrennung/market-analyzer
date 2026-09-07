@@ -6,17 +6,14 @@ use ma_core::{Interval, Symbol};
 use crate::error::AnalyticsError;
 use crate::rowutil::placeholders;
 
-/// One pair's correlation coefficient (FR-3.6).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CorrelationPair {
     pub symbol_a: String,
     pub symbol_b: String,
-    /// `None` when the pair never has two overlapping non-null returns.
+
     pub correlation: Option<f64>,
 }
 
-/// Pairwise correlation of log returns for `symbols` on `interval`'s common
-/// time grid (FR-3.6). Requires at least 2 symbols.
 pub fn correlation_matrix(
     conn: &Connection,
     exchange: &str,
@@ -77,14 +74,7 @@ mod tests {
                          CAST('1' AS DECIMAL(28,8)), CAST('1' AS DECIMAL(28,8)), 1, true)",
             )
             .unwrap();
-        // ETHUSDT tracks BTCUSDT's ratios exactly (BTC/10) -> log returns
-        // are identical -> correlation = +1 exactly. SOLUSDT is BTCUSDT's
-        // exact algebraic reciprocal (400/BTC) -> each log return is the
-        // exact negative of BTC's -> correlation = -1 exactly. (A "moves
-        // opposite in percentage terms" fixture is NOT enough here: log
-        // returns of reciprocal series are exact negatives only when the
-        // series are true reciprocals of one another, not just visually
-        // inverse-looking numbers.)
+
         let btc = ["100", "200", "100", "400"];
         let eth = ["10", "20", "10", "40"];
         let sol = ["4", "2", "4", "1"];

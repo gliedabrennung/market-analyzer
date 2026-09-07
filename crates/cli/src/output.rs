@@ -5,7 +5,6 @@ use serde_json::Value;
 
 use crate::commands::OutputFormat;
 
-/// Render `rows` in the requested format (FR-4.2).
 pub fn print_rows<T: Serialize>(rows: &[T], format: OutputFormat) -> Result<()> {
     match format {
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(rows)?),

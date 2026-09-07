@@ -8,21 +8,17 @@ use ma_core::Symbol;
 use crate::error::AnalyticsError;
 use crate::rowutil::{decimal_col, timestamp_col};
 
-/// Order Flow Imbalance for one time bucket (FR-3.5).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct OfiBucket {
     pub bucket: DateTime<Utc>,
-    /// Stored trade quantity, so `Decimal`, never `f64`.
+
     pub buy_volume: Decimal,
-    /// Stored trade quantity, so `Decimal`, never `f64`.
+
     pub sell_volume: Decimal,
-    /// `(buy_volume - sell_volume) / total_volume`: a genuinely-derived
-    /// ratio in `[-1, 1]`, not a stored quantity — `f64` is correct here.
+
     pub ofi: f64,
 }
 
-/// Order flow imbalance = (buy_volume - sell_volume) / total_volume,
-/// bucketed by `bucket_seconds`, over `[from, to)`.
 pub fn order_flow_imbalance(
     conn: &Connection,
     exchange: &str,
@@ -76,9 +72,7 @@ mod tests {
         let mut stmt = conn
             .prepare("INSERT INTO trades VALUES (?, 'BTCUSDT', 'binance', ?, CAST('1' AS DECIMAL(18,8)), CAST(? AS DECIMAL(18,8)), ?)")
             .unwrap();
-        // Bucket [0,60): buyer-taker (is_buyer_maker=false) qty 3 and 2 -> buy=5
-        //                seller-taker (is_buyer_maker=true) qty 1 -> sell=1
-        // ofi = (5-1)/(5+1) = 4/6 = 0.6666...
+
         let rows: &[(&str, i64, &str, bool)] = &[
             ("2026-01-01 00:00:05", 1, "3", false),
             ("2026-01-01 00:00:10", 2, "2", false),

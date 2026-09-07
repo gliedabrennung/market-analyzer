@@ -1,5 +1,4 @@
--- FR-3.7: cross-series spread via ASOF JOIN, in absolute terms and bps.
--- Params, in order: exchange_a, symbol_a, interval_a, exchange_b, symbol_b, interval_b
+
 SELECT
     a.open_time AS ts,
     CAST(a.close AS VARCHAR) AS price_a,

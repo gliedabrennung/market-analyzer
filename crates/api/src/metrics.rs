@@ -9,8 +9,6 @@ use prometheus::{HistogramOpts, HistogramVec, IntCounterVec, Opts, Registry, Tex
 
 use crate::state::AppState;
 
-/// FR-6.3: request counts, a request-duration histogram, and error counts
-/// by code, in Prometheus text format at `/metrics`.
 pub struct Metrics {
     registry: Registry,
     pub http_requests_total: IntCounterVec,
@@ -19,7 +17,6 @@ pub struct Metrics {
 }
 
 impl Metrics {
-    /// Creates and registers the three FR-6.3 collectors.
     pub fn new() -> Result<Self, prometheus::Error> {
         let registry = Registry::new();
 
@@ -51,7 +48,6 @@ impl Metrics {
         })
     }
 
-    /// Renders the registry as Prometheus text format for `GET /metrics`.
     pub fn render(&self) -> String {
         let families = self.registry.gather();
         TextEncoder::new()
@@ -60,10 +56,6 @@ impl Metrics {
     }
 }
 
-/// The standard HTTP methods this API ever routes; anything else collapses
-/// to `"other"` so a client sending arbitrary method tokens (any ASCII
-/// token is a legal HTTP method per RFC 7230) can't blow up the
-/// `method` label's cardinality.
 fn normalize_method(method: &Method) -> &'static str {
     match *method {
         Method::GET => "GET",
@@ -77,11 +69,6 @@ fn normalize_method(method: &Method) -> &'static str {
     }
 }
 
-/// Records request count, latency, and (for non-2xx) error-count metrics
-/// for every request (FR-6.3). The route *pattern* is used as a label
-/// (e.g. `/ohlcv/:symbol`), never the concrete path — using the literal
-/// symbol would blow up Prometheus label cardinality with one series per
-/// distinct value ever requested.
 pub async fn track_metrics(
     State(state): State<Arc<AppState>>,
     req: Request<axum::body::Body>,

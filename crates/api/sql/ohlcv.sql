@@ -1,7 +1,4 @@
--- FR-5.1 GET /ohlcv/{symbol}: bounded, paginated raw candles.
--- Scoped by `exchange` so a future second exchange's rows for the same
--- symbol can never silently interleave into one series (architecture goal Ц4).
--- Params, in order: exchange, symbol, interval, from_ts (inclusive), to_ts (exclusive), limit, offset
+
 SELECT
     open_time, close_time,
     CAST(open AS VARCHAR) AS open,

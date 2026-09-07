@@ -8,15 +8,9 @@ export interface CorrelationMatrixProps {
 }
 
 const DEFAULT_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT']
-/** `ApiLimits.max_correlation_symbols` on the backend (crates/api/src/state.rs). */
+
 const MAX_SYMBOLS = 10
 
-/** NFR-3.2: capped at 50%, not 100% — `--color-fg` text on a *pure*
- * `--color-up`/`--color-down` cell fails 4.5:1 contrast in every
- * light/dark × normal/colorblind combination (measured against all four
- * palettes in `tokens.css`; worst case 1.56:1). 50% is the highest blend
- * that still clears 4.5:1 in all four, so a correlation of exactly ±1
- * still passes at the visual extreme, not just in the common case. */
 const MAX_BLEND_PCT = 50
 
 export function correlationColor(value: number | null): string {
@@ -26,9 +20,6 @@ export function correlationColor(value: number | null): string {
   return `color-mix(in srgb, var(${token}) ${pct}%, var(--color-surface))`
 }
 
-/** FR-6.1/6.2/6.3: pairwise correlation heatmap. Diverging scale (0 =
- * neutral), and the number is always shown in the cell too — color is
- * never the only carrier of the value (FR-6.3/NFR-3.3). */
 export function CorrelationMatrix(props: CorrelationMatrixProps) {
   const [selected, setSelected] = createSignal<string[]>(DEFAULT_SYMBOLS)
   const [filter, setFilter] = createSignal('')
@@ -169,6 +160,4 @@ export function CorrelationMatrix(props: CorrelationMatrixProps) {
   )
 }
 
-// `solid-js`'s `lazy()` (used in app.tsx to keep this out of the initial
-// bundle — it's off by default) needs a default export.
 export default CorrelationMatrix

@@ -3,8 +3,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-/// Runtime configuration: defaults, overridden by a TOML file (`--config`),
-/// overridden by `MA_*` environment variables (FR-6.1).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -12,21 +10,13 @@ pub struct AppConfig {
     pub meta_db_path: PathBuf,
     pub binance_base_url: String,
     pub requests_per_second: u32,
-    /// Maximum width, in days, of a `from`/`to` range the API will accept
-    /// (FR-5.3) — also the default lookback when `from` is omitted.
+
     pub api_max_date_range_days: i64,
-    /// Read-only DuckDB connections held open for the API's request pool
-    /// (FR-5.4: queries run in `spawn_blocking`, never on the async
-    /// executor thread).
+
     pub api_db_pool_size: usize,
-    /// CORS `Access-Control-Allow-Origin` for the API (frontend-tz.md BE-2).
-    /// Defaults to the Vite dev server; set to the deployed frontend origin
-    /// in production.
+
     pub api_cors_origin: String,
-    /// Ceiling on simultaneously connected `/stream/{symbol}` clients. Each
-    /// one costs a separate upstream exchange connection, so this is what
-    /// keeps a burst of cheap client requests from turning into an
-    /// unbounded number of outbound sockets.
+
     pub api_max_ws_connections: usize,
 }
 

@@ -1,10 +1,3 @@
-//! `WS /stream/{symbol}` opens a *separate* upstream exchange connection
-//! per client, so the number of accepted clients has to be bounded — see
-//! `ApiLimits::max_ws_connections`. Runs the real router in-process over a
-//! temporary `meta.duckdb`; no exchange traffic happens, because the limit
-//! is checked before the socket is upgraded (which is the point: after the
-//! upgrade there is no HTTP status left to refuse with).
-
 use chrono::Utc;
 
 use ma_api::{build_app, ApiLimits, DbPool};
@@ -64,8 +57,6 @@ async fn serve_with_ws_limit(
 
 #[tokio::test]
 async fn refuses_a_ws_client_once_the_connection_budget_is_spent() {
-    // Budget of zero stands in for "every slot already taken" without
-    // needing a real upstream subscription to hold one.
     let (addr, _dir) = serve_with_ws_limit(0).await;
 
     let response = reqwest::Client::new()
@@ -83,8 +74,6 @@ async fn refuses_a_ws_client_once_the_connection_budget_is_spent() {
     assert_eq!(body["error"]["code"], "rate_limited");
 }
 
-/// CORS does not cover WebSocket handshakes, so a page on any other origin
-/// could otherwise open a stream from a visitor's browser.
 #[tokio::test]
 async fn refuses_a_ws_client_from_a_foreign_browser_origin() {
     let (addr, _dir) = serve_with_ws_limit(4).await;
@@ -105,8 +94,6 @@ async fn refuses_a_ws_client_from_a_foreign_browser_origin() {
     assert_eq!(body["error"]["details"]["parameter"], "origin");
 }
 
-/// A non-browser client (curl, another service) sends no `Origin` at all
-/// and must keep working — the check is about browser-initiated requests.
 #[tokio::test]
 async fn a_request_without_an_origin_header_passes_the_origin_check() {
     let (addr, _dir) = serve_with_ws_limit(0).await;
@@ -121,8 +108,6 @@ async fn a_request_without_an_origin_header_passes_the_origin_check() {
         .await
         .expect("sending upgrade request");
 
-    // Reaches the connection-budget check (spent here) rather than being
-    // turned away as a cross-origin request.
     assert_eq!(response.status(), reqwest::StatusCode::TOO_MANY_REQUESTS);
 }
 

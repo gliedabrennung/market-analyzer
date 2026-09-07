@@ -11,7 +11,6 @@ export interface VolatilityPanelProps {
 
 const WINDOW = 20
 
-/** FR-4.1: realized volatility panel. */
 export function VolatilityPanel(props: VolatilityPanelProps) {
   const query = createQuery(() => ({
     queryKey: ['volatility', props.symbol, props.interval],

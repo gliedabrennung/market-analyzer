@@ -8,18 +8,14 @@ use ma_core::{Interval, Symbol};
 use crate::error::AnalyticsError;
 use crate::rowutil::{decimal_col, decimal_col_opt, timestamp_col};
 
-/// One point of a rolling VWAP series (FR-3.2).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct VwapPoint {
     pub open_time: DateTime<Utc>,
     pub close: Decimal,
-    /// `None` for the very first bar(s) of a symbol/interval that has no
-    /// volume in its window yet (all-zero window). A price like `close`, so
-    /// `Decimal`, never `f64` (NFR-3.4-adjacent money-safety rule).
+
     pub vwap: Option<Decimal>,
 }
 
-/// Rolling VWAP over the last `window` klines (default 20 per FR-3.2).
 pub fn vwap(
     conn: &Connection,
     exchange: &str,
@@ -79,7 +75,7 @@ mod tests {
                          CAST(? AS DECIMAL(28,8)), CAST(? AS DECIMAL(28,8)), 1, true)",
             )
             .unwrap();
-        // close=100 vol=1 ; close=200 vol=1 ; close=300 vol=2
+
         let rows: &[(&str, &str, &str)] = &[
             ("2026-01-01 00:00:00", "100", "1"),
             ("2026-01-01 00:01:00", "200", "1"),
@@ -101,17 +97,16 @@ mod tests {
         let points = vwap(&conn, "binance", &symbol, Interval::OneMinute, 3).unwrap();
         assert_eq!(points.len(), 3);
 
-        // bar 1: vwap = 100
         assert_eq!(
             points[0].vwap,
             Some(Decimal::from_str("100.00000000").unwrap())
         );
-        // bar 2: (100*1 + 200*1) / (1+1) = 150
+
         assert_eq!(
             points[1].vwap,
             Some(Decimal::from_str("150.00000000").unwrap())
         );
-        // bar 3: (100*1 + 200*1 + 300*2) / (1+1+2) = 900/4 = 225
+
         assert_eq!(
             points[2].vwap,
             Some(Decimal::from_str("225.00000000").unwrap())

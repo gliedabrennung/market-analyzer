@@ -1,6 +1,5 @@
 import { createSignal } from 'solid-js'
 
-/** FR-8.1: "недавно использованные наверху". */
 const STORAGE_KEY = 'market-analyzer:recent-symbols'
 const MAX_RECENT = 6
 
@@ -22,9 +21,7 @@ export function pushRecentSymbol(symbol: string): void {
     const next = [symbol, ...prev.filter((s) => s !== symbol)].slice(0, MAX_RECENT)
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-    } catch {
-      // best-effort persistence; losing the recents list isn't worth failing over
-    }
+    } catch {}
     return next
   })
 }

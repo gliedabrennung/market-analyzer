@@ -13,15 +13,12 @@ use clap::{Parser, Subcommand};
 
 use crate::config::AppConfig;
 
-/// `market-analyzer` — сбор и аналитика биржевых данных (FR-4.1).
 #[derive(Parser)]
 #[command(name = "market-analyzer", version, about)]
 pub struct Cli {
-    /// Повысить уровень логирования (FR-4.3).
     #[arg(long, global = true)]
     pub verbose: bool,
 
-    /// Файл конфигурации TOML (FR-4.3, FR-6.1).
     #[arg(long, global = true, value_name = "PATH")]
     pub config: Option<PathBuf>,
 
@@ -31,17 +28,16 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Историческая загрузка свечей (FR-1.2, FR-2.1..FR-2.3, Этап 1).
     Backfill(BackfillArgs),
-    /// Live-поток в реальном времени (FR-1.4, Этап 3).
+
     Stream(StreamArgs),
-    /// Аналитический запрос (FR-3.x, Этап 2).
+
     Query(QueryArgs),
-    /// Склейка part-файлов партиции (FR-2.5, Этап 5).
+
     Compact(CompactArgs),
-    /// Реестр символов (FR-2.6).
+
     Symbols(SymbolsArgs),
-    /// HTTP API (FR-5.x, Этап 4).
+
     Serve(ServeArgs),
 }
 

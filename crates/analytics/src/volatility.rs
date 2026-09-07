@@ -7,17 +7,13 @@ use ma_core::{Interval, Symbol};
 use crate::error::AnalyticsError;
 use crate::rowutil::timestamp_col;
 
-/// One point of a rolling realized-volatility series (FR-3.3).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct VolatilityPoint {
     pub open_time: DateTime<Utc>,
-    /// `None` where fewer than 2 log returns exist in the window yet.
+
     pub realized_volatility: Option<f64>,
 }
 
-/// Rolling realized volatility (stddev of log returns over the last
-/// `window` bars), annualized to a daily horizon by `sqrt(bars_per_day)`
-/// for `interval` — e.g. `sqrt(1440)` for `1m` bars, `1.0` for `1d` bars.
 pub fn realized_volatility(
     conn: &Connection,
     exchange: &str,
@@ -85,9 +81,6 @@ mod tests {
         conn
     }
 
-    /// Independently computes the same rolling sample-stddev-of-log-returns
-    /// series in plain Rust, so the SQL result is checked against a formula
-    /// implemented a completely different way, not a hand-typed literal.
     fn reference_volatility(closes: &[f64], window: usize) -> Vec<Option<f64>> {
         let log_rets: Vec<f64> = closes.windows(2).map(|w| (w[1] / w[0]).ln()).collect();
         (0..log_rets.len())
@@ -118,7 +111,6 @@ mod tests {
         let conn = setup(&rows_ref);
         let symbol = Symbol::new("BTCUSDT").unwrap();
 
-        // interval = 1d => scale factor sqrt(1) = 1, isolating the stddev math itself.
         let window = 3usize;
         let actual =
             realized_volatility(&conn, "binance", &symbol, Interval::OneDay, window as u32)

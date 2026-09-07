@@ -15,14 +15,6 @@ const DATASET: &str = "trades";
 
 type DedupKey = (String, i64);
 
-/// Writes `Trade`s to the Parquet/hive layout from FR-2.1, deduplicating by
-/// `(exchange, trade_id)` within each symbol/day partition (FR-2.3, TZ 5.1).
-/// Mirrors `KlineStore` — see there for why writes go through an in-memory
-/// DuckDB "SQL-to-Parquet engine" (architecture §3.4 variant A) rather than
-/// a raw Arrow/Parquet writer, and why the dedup key set is cached in memory
-/// after its first disk read per partition rather than re-scanned on every
-/// write (a long-running `stream` process flushes far more often than
-/// `backfill` writes once).
 pub struct TradeStore {
     data_root: PathBuf,
     engine: Connection,
@@ -30,7 +22,6 @@ pub struct TradeStore {
 }
 
 impl TradeStore {
-    /// Opens the in-memory DuckDB engine used to write into `data_root`.
     pub fn new(data_root: impl Into<PathBuf>) -> Result<Self, StorageError> {
         let engine = Connection::open_in_memory()?;
         Ok(Self {
@@ -40,9 +31,6 @@ impl TradeStore {
         })
     }
 
-    /// Write `trades`, skipping rows that already exist on disk under the
-    /// `(exchange, trade_id)` dedup key. Returns the number of rows
-    /// actually written.
     pub fn write_trades(&self, trades: &[Trade]) -> Result<usize, StorageError> {
         if trades.is_empty() {
             return Ok(0);
@@ -95,11 +83,6 @@ impl TradeStore {
         Ok(fresh.len())
     }
 
-    /// Takes ownership of the cached dedup set for `dir` (loading it from
-    /// disk on first touch); the caller reinserts the (possibly updated)
-    /// set afterward. See `KlineStore::take_dedup_set` for why this shape
-    /// (`remove` + reinsert, no `get_mut`) — it avoids a fallible lookup
-    /// that would otherwise need an `unwrap`/`expect` (NFR-3.4).
     fn take_dedup_set(&self, dir: &Path) -> Result<HashSet<DedupKey>, StorageError> {
         if let Some(set) = self.dedup_cache.borrow_mut().remove(dir) {
             return Ok(set);
@@ -223,7 +206,6 @@ mod tests {
 
     #[test]
     fn dedup_key_is_exchange_and_trade_id_not_price_or_time() {
-        // Two different trade_ids at the exact same instant must both survive.
         let tmp = tempdir().unwrap();
         let store = TradeStore::new(tmp.path()).unwrap();
         let base = Utc.with_ymd_and_hms(2026, 8, 1, 0, 0, 0).unwrap();

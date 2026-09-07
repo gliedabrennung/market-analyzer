@@ -6,12 +6,8 @@ use duckdb::Connection;
 use crate::error::StorageError;
 use crate::paths::{list_part_files, next_part_index, sql_quote_path};
 
-/// Suffix for a compaction's write-ahead manifest — never matches
-/// `part-*.parquet`, so it's invisible to `list_part_files`/`next_part_index`
-/// and to the DuckDB glob views. See [`recover_incomplete_compaction`].
 const MANIFEST_SUFFIX: &str = ".compacted-manifest";
 
-/// Outcome of compacting one partition directory (FR-2.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CompactionResult {
     pub files_before: usize,
@@ -21,24 +17,6 @@ pub struct CompactionResult {
     pub bytes_after: u64,
 }
 
-/// Merges every `part-*.parquet` file in `dir` into one, sorted by
-/// `order_by_column` for scan locality. No-op if the partition already has
-/// at most one file.
-///
-/// Crash-safe by construction: the merged file is written under a *new*,
-/// never-before-used index and verified (row count + an order-independent
-/// row checksum, `sum(hash(row))`, so a `COPY`-induced reorder can't cause
-/// a false mismatch) against the originals *before* any original file is
-/// deleted. A crash between "merged file written" and "originals deleted"
-/// leaves both on disk — a transient over-count a query might see, and
-/// which this function's own next run resolves automatically: a
-/// write-ahead manifest naming exactly the files this compaction replaces
-/// is durably in place *before* the merge is written, so
-/// [`recover_incomplete_compaction`] can always finish an interrupted
-/// cleanup — deleting exactly those files, nothing more — before computing
-/// a fresh "before" checksum. Without this, a second run could otherwise
-/// compute its checksum over the still-duplicated glob and "verify" a merge
-/// that silently bakes the duplicate in permanently.
 pub fn compact_partition(
     dir: &Path,
     order_by_column: &str,
@@ -110,20 +88,6 @@ pub fn compact_partition(
     })
 }
 
-/// Finishes any compaction whose merged file was already written (and
-/// checksum-verified) but whose original-file cleanup was interrupted by a
-/// crash. Run automatically at the start of every [`compact_partition`]
-/// call, so a dangling manifest is always resolved before any new
-/// compaction computes a "before" checksum over the same directory.
-///
-/// A manifest alone is *not* proof that the merge finished: it is written
-/// before the `COPY`, so a crash during the copy (or before its rename)
-/// leaves a manifest whose listed files are still the only copy of the
-/// partition's rows. The merged file's presence under its final name is
-/// the real completion marker — that name only ever appears via the atomic
-/// rename after the checksum matched. So each manifest is honored only
-/// when its merged file exists; otherwise the compaction never happened
-/// and only the manifest is cleared.
 fn recover_incomplete_compaction(dir: &Path) -> Result<(), StorageError> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -150,16 +114,11 @@ fn recover_incomplete_compaction(dir: &Path) -> Result<(), StorageError> {
     Ok(())
 }
 
-/// `part-0003.compacted-manifest` -> `part-0003.parquet`; `None` for any
-/// path that isn't a manifest.
 fn merged_file_for_manifest(path: &Path) -> Option<PathBuf> {
     let stem = path.file_name()?.to_str()?.strip_suffix(MANIFEST_SUFFIX)?;
     Some(path.with_file_name(format!("{stem}.parquet")))
 }
 
-/// Durably records, *before* the merged file is written, exactly which
-/// files this compaction will make redundant — written via the usual
-/// tmp-then-rename pattern so the manifest itself never appears half-written.
 fn write_manifest(dir: &Path, new_index: u32, files: &[PathBuf]) -> Result<PathBuf, StorageError> {
     let tmp_path = dir.join(format!("part-{new_index:04}{MANIFEST_SUFFIX}.tmp"));
     let final_path = dir.join(format!("part-{new_index:04}{MANIFEST_SUFFIX}"));
@@ -172,10 +131,6 @@ fn write_manifest(dir: &Path, new_index: u32, files: &[PathBuf]) -> Result<PathB
     Ok(final_path)
 }
 
-/// Deletes every file named in `manifest_path` (tolerating one already
-/// having been removed by a prior, interrupted attempt), then the manifest
-/// itself — the manifest's presence is exactly what future runs use to
-/// detect that this cleanup hasn't finished yet.
 fn delete_manifested_files(manifest_path: &Path) -> Result<(), StorageError> {
     let dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     let contents = fs::read_to_string(manifest_path)?;
@@ -209,9 +164,6 @@ fn row_count(dir: &Path, pattern: &str) -> Result<usize, StorageError> {
     Ok(count as usize)
 }
 
-/// `(row count, order-independent checksum)` for whatever `glob` matches —
-/// hashing the whole row as a struct and summing means row order (which
-/// `ORDER BY` in the `COPY` changes) can't affect the result.
 fn aggregate_checksum(engine: &Connection, glob: &str) -> Result<(i64, String), StorageError> {
     engine
         .query_row(
@@ -257,7 +209,6 @@ mod tests {
         let store = crate::KlineStore::new(tmp.path()).unwrap();
         let base = Utc.with_ymd_and_hms(2026, 8, 1, 0, 0, 0).unwrap();
 
-        // Five separate flushes -> five separate part files, same partition.
         for minute in 0..5i64 {
             store.write_klines(&[kline_at(base, minute)]).unwrap();
         }
@@ -304,10 +255,6 @@ mod tests {
         let existing = list_part_files(&dir).unwrap();
         assert_eq!(existing.len(), 3);
 
-        // Hand-construct exactly the "crashed between rename and cleanup"
-        // state: the merged file is already written and correct, its
-        // manifest (naming the 3 originals it replaces) is in place, but
-        // none of the originals has been deleted yet.
         let manifest_path = write_manifest(&dir, 3, &existing).unwrap();
         let engine = Connection::open_in_memory().unwrap();
         let glob = sql_quote_path(&dir.join("part-*.parquet"));
@@ -320,13 +267,9 @@ mod tests {
             ))
             .unwrap();
         assert!(manifest_path.exists());
-        // Transient duplicate: the 3 originals plus the merged file that
-        // already contains their rows.
+
         assert_eq!(list_part_files(&dir).unwrap().len(), 4);
 
-        // A retried `compact_partition` must finish the interrupted cleanup
-        // *before* computing any fresh checksum, so it must never see —
-        // let alone silently verify and bake in — that transient duplicate.
         let result = compact_partition(&dir, "open_time").unwrap();
         assert_eq!(result.files_before, 1);
         assert_eq!(result.files_after, 1);
@@ -339,12 +282,6 @@ mod tests {
         assert_eq!(list_part_files(&dir).unwrap(), vec![final_path]);
     }
 
-    /// The other crash window: manifest already durable, but the merge
-    /// itself never finished (no merged file under its final name). The
-    /// manifest names files that are still the *only* copy of this
-    /// partition's rows — deleting them here would destroy the partition
-    /// outright, since the interrupted merge left nothing to replace them
-    /// with.
     #[test]
     fn crash_before_merge_lands_keeps_the_originals() {
         let tmp = tempdir().unwrap();
@@ -362,8 +299,6 @@ mod tests {
         let existing = list_part_files(&dir).unwrap();
         assert_eq!(existing.len(), 3);
 
-        // Crashed between `write_manifest` and the `COPY`'s rename: the
-        // manifest is on disk, `part-0003.parquet` never appeared.
         let manifest_path = write_manifest(&dir, 3, &existing).unwrap();
         assert!(!dir.join("part-0003.parquet").exists());
 

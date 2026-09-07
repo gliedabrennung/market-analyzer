@@ -23,8 +23,7 @@ test.beforeEach(async ({ page }) => {
   const today = new Date().toISOString().slice(0, 10)
   await page.route('**/ohlcv/**', (route) => {
     const to = new URL(route.request().url()).searchParams.get('to')
-    // The live window's `to` is an instant (see app.tsx's `range`), so it
-    // starts with today's date; an older window carries an earlier date.
+
     if (to === null || !to.startsWith(today)) {
       route.fulfill({ contentType: 'application/json', body: '[]' })
       return
@@ -34,7 +33,6 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-// FR-7.1: a live trade frame, real wire shape (frontend-tz.md BE-5).
 function tradeFrame(tradeId: number, price: string, isBuyerMaker: boolean): string {
   return JSON.stringify({
     type: 'trade',
@@ -57,20 +55,16 @@ test('shows live trades in the trade tape (FR-7.1)', async ({ page }) => {
   await page.goto('/?symbol=BTCUSDT&interval=1m')
   await expect(page.getByTestId('price-chart').locator('canvas').first()).toBeVisible()
 
-  // Newest-first display (trade-tape.tsx): trade 2 arrived after trade 1.
   await expect(page.getByText('50001.50')).toBeVisible()
   await expect(page.getByText('50000.00')).toBeVisible()
 })
 
-// Этап 3's own acceptance line (frontend-tz.md §8): "Принудительный обрыв
-// соединения → реконнект → данные догружены без разрыва."
 test('reconnects with backoff after a forced disconnect (FR-2.2)', async ({ page }) => {
   let connectionCount = 0
 
   await page.routeWebSocket('**/stream/**', (ws) => {
     connectionCount++
     if (connectionCount === 1) {
-      // Force-drop the very first connection shortly after it opens.
       setTimeout(() => ws.close(), 200)
     } else {
       ws.send(tradeFrame(99, '51234.00', false))
@@ -81,8 +75,7 @@ test('reconnects with backoff after a forced disconnect (FR-2.2)', async ({ page
   await expect(page.getByTestId('price-chart').locator('canvas').first()).toBeVisible()
 
   await expect.poll(() => connectionCount, { timeout: 5000 }).toBeGreaterThanOrEqual(2)
-  // Data flows again on the reconnected socket, without a page reload —
-  // "данные догружены без разрыва".
+
   await expect(page.getByText('51234.00')).toBeVisible()
   await expect(page.getByText('Live')).toBeVisible()
 })
@@ -103,10 +96,6 @@ test('a live kline tick updates the chart via update(), not a full setData() re-
     () => performance.getEntriesByName('price-chart:set-data').length,
   )
 
-  // A live update to the *current* bar — same shape/reasoning as
-  // live-stream tests above, but `kline`. `open_time` is "now" truncated
-  // to the minute so the client accepts it as >= the last historical bar
-  // (fixtures.ts's candles run up to "now").
   const openTime = new Date(Math.floor(Date.now() / 60_000) * 60_000)
   sendKline?.(
     JSON.stringify({
@@ -129,21 +118,12 @@ test('a live kline tick updates the chart via update(), not a full setData() re-
 
   await page.waitForTimeout(300)
 
-  // The live path never touches `props.data`/`setData()` — only the
-  // historical-load effect does, and nothing here re-fetches history.
   const setDataCallsAfter = await page.evaluate(
     () => performance.getEntriesByName('price-chart:set-data').length,
   )
   expect(setDataCallsAfter).toBe(setDataCallsBefore)
 })
 
-// A frame that belongs to the pair the user just switched *away* from must
-// never reach the chart: applying one pair's price to another's series
-// draws a single candle far above (or below) everything else and stretches
-// the price scale to match — reproduced as a BTC-priced candle landing on
-// an ETH chart. Frames can arrive after the switch either from the rAF
-// buffer (queued, not yet painted) or from the old socket in the moment
-// between `close()` and the socket actually closing.
 test('ignores a live kline for a pair other than the one on screen', async ({ page }) => {
   let sendKline: ((frame: string) => void) | undefined
   await page.routeWebSocket('**/stream/**', (ws) => {
@@ -173,18 +153,13 @@ test('ignores a live kline for a pair other than the one on screen', async ({ pa
       is_closed: false,
     })
 
-  // The fixtures price BTCUSDT around 50,000 (fixtures.ts); this is the
-  // shape of a stale frame from another pair.
   sendKline?.(klineFrame('ETHUSDT', '1m', '2500.00000000'))
   sendKline?.(klineFrame('BTCUSDT', '5m', '999999.00000000'))
   await page.waitForTimeout(400)
 
-  // The status bar mirrors the chart's latest price, so a foreign frame
-  // that got through would show up here.
   await expect(page.getByText('2500.00', { exact: false })).toHaveCount(0)
   await expect(page.getByText('999999.00', { exact: false })).toHaveCount(0)
 
-  // ...while a frame for the displayed pair still gets applied.
   sendKline?.(klineFrame('BTCUSDT', '1m', '50123.00000000'))
   await expect(page.getByText('50123.00', { exact: false }).first()).toBeVisible()
 })

@@ -14,14 +14,10 @@ pub struct SymbolDto {
     pub base_asset: String,
     pub quote_asset: String,
     pub status: String,
-    /// Whether anything has ever been collected for this symbol. The
-    /// registry is the exchange's full pair list (thousands of entries,
-    /// most of them delisted), so without this a client cannot tell which
-    /// of them will return candles and which will just render empty.
+
     pub has_data: bool,
 }
 
-/// `GET /symbols` (FR-5.1): the registry populated by `symbols --refresh`.
 pub async fn list_symbols(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<SymbolDto>>, ApiError> {

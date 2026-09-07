@@ -1,9 +1,4 @@
--- FR-3.6: pairwise correlation of log returns across a symbol set on a
--- common time grid. Scoped by `exchange` so a future second exchange's
--- rows for the same symbol can never silently interleave into one series
--- (architecture goal Ц4). Params, in order: exchange, interval, then one
--- `?` per symbol (arity fixed up by ma_analytics::correlation at call time
--- — see rowutil::placeholders; only punctuation is spliced in, never data).
+
 WITH rets AS (
     SELECT
         open_time,
