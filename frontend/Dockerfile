@@ -1,4 +1,4 @@
-# `VITE_API_BASE_URL` (frontend/README.md's "Переменные окружения") is
+# `VITE_API_BASE_URL` (root README.md's "Конфигурация") is
 # read by Vite at *build* time and inlined into the JS bundle — there is
 # no runtime env var to override once this image is built. The default
 # below matches docker-compose.yml's own backend port publish
