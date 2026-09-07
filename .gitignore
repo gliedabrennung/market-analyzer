@@ -3,3 +3,5 @@
 *.duckdb
 *.duckdb.wal
 .claude
+*-tz.md
+market-analyzer-architecture.md
