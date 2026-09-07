@@ -45,7 +45,11 @@ tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 async-stream = "0.3"
 axum = { version = "0.7", features = ["ws"] }
 tower-http = { version = "0.5", features = ["trace", "cors"] }
-prometheus = "0.13"
+# default-features = false drops the `protobuf` feature: it exists only for
+# the protobuf exposition format, which nothing here uses (`/metrics` is
+# rendered by `TextEncoder`), and it pulls protobuf 2.x — unmaintained and
+# carrying RUSTSEC-2024-0437 (uncontrolled recursion), with no 2.x fix.
+prometheus = { version = "0.13", default-features = false }
 arrow = { version = "54", default-features = false, features = ["ipc"] }
 
 [profile.release]
