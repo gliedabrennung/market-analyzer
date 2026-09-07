@@ -53,7 +53,9 @@ test('renders 50,000 candles in under 200ms (NFR-1.3)', async ({ page }) => {
   // second time, out of order.
   await page.route('**/ohlcv/**', (route) => {
     const url = new URL(route.request().url())
-    if (url.searchParams.get('to') !== today) {
+    // The live window's `to` is an instant (see app.tsx's `range`), so it
+    // starts with today's date; an older window carries an earlier date.
+    if (!(url.searchParams.get('to') ?? '').startsWith(today)) {
       route.fulfill({ contentType: 'application/json', body: '[]' })
       return
     }
@@ -90,7 +92,9 @@ test('panning the chart does not trigger a long task (NFR-1.4)', async ({ page }
   const today = new Date().toISOString().slice(0, 10)
   await page.route('**/ohlcv/**', (route) => {
     const url = new URL(route.request().url())
-    if (url.searchParams.get('to') !== today) {
+    // The live window's `to` is an instant (see app.tsx's `range`), so it
+    // starts with today's date; an older window carries an earlier date.
+    if (!(url.searchParams.get('to') ?? '').startsWith(today)) {
       route.fulfill({ contentType: 'application/json', body: '[]' })
       return
     }
@@ -138,7 +142,9 @@ test('holds close to 60fps under a 1000-message WS burst (NFR-1.5)', async ({ pa
   const today = new Date().toISOString().slice(0, 10)
   await page.route('**/ohlcv/**', (route) => {
     const url = new URL(route.request().url())
-    if (url.searchParams.get('to') !== today) {
+    // The live window's `to` is an instant (see app.tsx's `range`), so it
+    // starts with today's date; an older window carries an earlier date.
+    if (!(url.searchParams.get('to') ?? '').startsWith(today)) {
       route.fulfill({ contentType: 'application/json', body: '[]' })
       return
     }
@@ -202,7 +208,9 @@ test('heap growth stays bounded under a sustained trade flood (NFR-1.7, short pr
   const today = new Date().toISOString().slice(0, 10)
   await page.route('**/ohlcv/**', (route) => {
     const url = new URL(route.request().url())
-    if (url.searchParams.get('to') !== today) {
+    // The live window's `to` is an instant (see app.tsx's `range`), so it
+    // starts with today's date; an older window carries an earlier date.
+    if (!(url.searchParams.get('to') ?? '').startsWith(today)) {
       route.fulfill({ contentType: 'application/json', body: '[]' })
       return
     }
@@ -257,7 +265,9 @@ test('switching back to a cached interval fires no new request (NFR-1.8)', async
     const url = new URL(route.request().url())
     const interval = url.searchParams.get('interval') ?? ''
     requestCounts[interval] = (requestCounts[interval] ?? 0) + 1
-    if (url.searchParams.get('to') !== today) {
+    // The live window's `to` is an instant (see app.tsx's `range`), so it
+    // starts with today's date; an older window carries an earlier date.
+    if (!(url.searchParams.get('to') ?? '').startsWith(today)) {
       route.fulfill({ contentType: 'application/json', body: '[]' })
       return
     }

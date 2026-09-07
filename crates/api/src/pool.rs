@@ -1,3 +1,4 @@
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 
 use ma_storage::MetaStore;
@@ -57,45 +58,60 @@ impl DbPool {
                 .ok_or_else(|| ApiError::Internal("db pool closed".to_string()))?
         };
         let tx = self.tx.clone();
+        let meta_db_path = self.meta_db_path.clone();
+        let data_root = self.data_root.clone();
         let joined = tokio::task::spawn_blocking(move || {
             // A dataset that had no Parquet files when this handle was
             // opened has no view yet; `serve` outlives the first `backfill`
             // that creates one, so the check has to happen per use rather
             // than once at startup. It costs a set lookup once both views
             // exist.
-            let result = store
-                .ensure_views()
-                .map_err(ApiError::from)
-                .and_then(|()| f(&store));
-            (store, result)
-        })
-        .await;
-        match joined {
-            Ok((store, result)) => {
-                // Best-effort return: if the channel is somehow full (it
-                // never should be — we only ever hold as many handles as
-                // capacity), drop it rather than block or panic.
-                let _ = tx.try_send(store);
-                result
-            }
-            Err(join_error) => {
-                // The closure panicked, taking its `MetaStore` handle down
-                // with it — the channel is now permanently one short unless
-                // we replenish it. Open a fresh read-only connection to
-                // refill the slot; if that also fails, the pool is one
-                // handle smaller but still correct (never wrong data, just
-                // reduced concurrency) rather than eventually deadlocking
-                // every caller on `rx.recv()`.
-                if join_error.is_panic() {
-                    tracing::error!(error = %join_error, "db pool worker panicked, replenishing pool slot");
-                    if let Ok(fresh) =
-                        MetaStore::open_read_only(&self.meta_db_path, &self.data_root)
-                    {
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                store
+                    .ensure_views()
+                    .map_err(ApiError::from)
+                    .and_then(|()| f(&store))
+            }));
+
+            // The handle goes back from *inside* the task, not after the
+            // await below: a client that disconnects mid-request causes
+            // axum to drop this handler's future, and then nothing after
+            // that await ever runs. Returning it there leaked one handle
+            // per cancelled request — and the frontend cancels in-flight
+            // requests on every symbol/interval switch, so a few switches
+            // emptied the pool and left every later request waiting on
+            // `rx.recv()` forever, with `/health` (no database) still
+            // answering 200 the whole time.
+            match &result {
+                Ok(_) => {
+                    // Best-effort: the channel holds at most the handles
+                    // this pool created, so it cannot actually be full.
+                    let _ = tx.try_send(store);
+                }
+                Err(_) => {
+                    // A panicked closure can leave its connection mid-
+                    // statement; replace the handle rather than hand a
+                    // questionable one to the next caller. Failing that,
+                    // the pool runs one handle smaller — reduced
+                    // concurrency, never wrong data, and still not a
+                    // permanent stall.
+                    drop(store);
+                    if let Ok(fresh) = MetaStore::open_read_only(&meta_db_path, &data_root) {
                         let _ = tx.try_send(fresh);
                     }
                 }
-                Err(ApiError::Internal(format!("db task failed: {join_error}")))
             }
+            result
+        })
+        .await;
+
+        match joined {
+            Ok(Ok(result)) => result,
+            Ok(Err(_panic)) => {
+                tracing::error!("db pool worker panicked; pool slot replenished");
+                Err(ApiError::Internal("db task panicked".to_string()))
+            }
+            Err(join_error) => Err(ApiError::Internal(format!("db task failed: {join_error}"))),
         }
     }
 }

@@ -251,6 +251,14 @@ export function PriceChart(props: PriceChartProps) {
         to: priorLogicalRange.to + barCountDelta,
       })
     } else {
+      // Not a prepend, so this is a different series (new symbol/interval
+      // or an empty result). Any highlight marker still on the chart
+      // points at a bar of the *old* series: visually it lingers over
+      // unrelated candles, and Lightweight Charts positions markers via
+      // `ensureNotNull(series.priceToCoordinate(...))`, which throws
+      // "Value is null" outright once the bar it refers to is gone.
+      lastMarkerTime = undefined
+      markers?.setMarkers([])
       chart.timeScale().fitContent()
     }
     performance.mark('price-chart:set-data:end')

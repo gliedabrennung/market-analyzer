@@ -23,7 +23,9 @@ test.beforeEach(async ({ page }) => {
   const today = new Date().toISOString().slice(0, 10)
   await page.route('**/ohlcv/**', (route) => {
     const to = new URL(route.request().url()).searchParams.get('to')
-    if (to !== today) {
+    // The live window's `to` is an instant (see app.tsx's `range`), so it
+    // starts with today's date; an older window carries an earlier date.
+    if (to === null || !to.startsWith(today)) {
       route.fulfill({ contentType: 'application/json', body: '[]' })
       return
     }

@@ -33,7 +33,9 @@ test.beforeEach(async ({ page }) => {
     // than serving the same 500 candles again under an earlier `to`,
     // which would duplicate their timestamps out of order once prepended).
     const to = new URL(route.request().url()).searchParams.get('to')
-    if (to !== today) {
+    // The live window's `to` is an instant (see app.tsx's `range`), so it
+    // starts with today's date; an older window carries an earlier date.
+    if (to === null || !to.startsWith(today)) {
       route.fulfill({ contentType: 'application/json', body: '[]' })
       return
     }

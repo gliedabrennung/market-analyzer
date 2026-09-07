@@ -56,10 +56,16 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 export function App() {
+  /** `to` is the current instant, not today's date: the backend's `to` is
+   * exclusive (`open_time < to`) and a bare `YYYY-MM-DD` parses to that
+   * day's midnight, so sending today's date asked for everything *up to*
+   * today and silently dropped every candle since — the chart ended
+   * yesterday and today's bars only ever appeared through the live socket.
+   * `from` stays a date: a midnight boundary is exactly right there. */
   const range = createMemo(() => {
     const to = new Date()
     const from = new Date(to.getTime() - HISTORY_DAYS * MS_PER_DAY)
-    return { from: isoDate(from), to: isoDate(to) }
+    return { from: isoDate(from), to: to.toISOString() }
   })
 
   const ohlcvQuery = createQuery(() => ({
@@ -82,11 +88,19 @@ export function App() {
   const [loadingEarlier, setLoadingEarlier] = createSignal(false)
   const [historyExhausted, setHistoryExhausted] = createSignal(false)
 
+  // FR-5.3: clicking an anomalies-table row jumps the chart there.
+  const [jumpTarget, setJumpTarget] = createSignal<{ time: number; nonce: number } | null>(null)
+  function jumpToTime(time: number) {
+    setJumpTarget({ time, nonce: Date.now() })
+  }
+
   createEffect(
     on([symbol, interval], () => {
       setExtraOlderRows([])
       setEarliestLoaded(range().from)
       setHistoryExhausted(false)
+      // The highlighted bar belonged to the series being replaced.
+      setJumpTarget(null)
     }),
   )
 
@@ -124,12 +138,6 @@ export function App() {
     interval,
     onResume: () => void ohlcvQuery.refetch(),
   })
-
-  // FR-5.3: clicking an anomalies-table row jumps the chart there.
-  const [jumpTarget, setJumpTarget] = createSignal<{ time: number; nonce: number } | null>(null)
-  function jumpToTime(time: number) {
-    setJumpTarget({ time, nonce: Date.now() })
-  }
 
   // `r` hotkey (FR-8.5).
   const [resetZoomNonce, setResetZoomNonce] = createSignal<number | undefined>(undefined)
