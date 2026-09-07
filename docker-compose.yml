@@ -1,0 +1,36 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '${BACKEND_PORT:-8080}:8080'
+    volumes:
+      # Persists across `docker compose down`/rebuilds — this is real
+      # market data (Parquet klines/trades + meta.duckdb), not something
+      # to lose on every recreate. Same layout as the non-Docker
+      # `./data/` default (root README), just bind-mounted instead.
+      - ./data:/data
+    environment:
+      # frontend's published origin below (BE-2/frontend-tz.md) — must
+      # match FRONTEND_PORT or the browser's CORS preflight fails.
+      MA_API_CORS_ORIGIN: 'http://localhost:${FRONTEND_PORT:-8081}'
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Baked into the JS bundle at build time (Vite) — see
+        # frontend/Dockerfile's own comment. Must be the URL the *browser*
+        # (running on the host, not inside the compose network) can reach
+        # the backend at, i.e. the published port below, not the
+        # in-network service name `backend`.
+        VITE_API_BASE_URL: 'http://localhost:${BACKEND_PORT:-8080}'
+    ports:
+      - '${FRONTEND_PORT:-8081}:80'
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
