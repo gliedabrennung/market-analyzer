@@ -136,3 +136,55 @@ test('a live kline tick updates the chart via update(), not a full setData() re-
   )
   expect(setDataCallsAfter).toBe(setDataCallsBefore)
 })
+
+// A frame that belongs to the pair the user just switched *away* from must
+// never reach the chart: applying one pair's price to another's series
+// draws a single candle far above (or below) everything else and stretches
+// the price scale to match — reproduced as a BTC-priced candle landing on
+// an ETH chart. Frames can arrive after the switch either from the rAF
+// buffer (queued, not yet painted) or from the old socket in the moment
+// between `close()` and the socket actually closing.
+test('ignores a live kline for a pair other than the one on screen', async ({ page }) => {
+  let sendKline: ((frame: string) => void) | undefined
+  await page.routeWebSocket('**/stream/**', (ws) => {
+    sendKline = (frame) => ws.send(frame)
+  })
+
+  await page.goto('/?symbol=BTCUSDT&interval=1m')
+  await expect(page.getByTestId('price-chart').locator('canvas').first()).toBeVisible()
+  await expect.poll(() => sendKline !== undefined).toBe(true)
+
+  const openTime = new Date(Math.floor(Date.now() / 60_000) * 60_000)
+  const klineFrame = (symbol: string, interval: string, price: string) =>
+    JSON.stringify({
+      type: 'kline',
+      open_time: openTime.toISOString(),
+      close_time: new Date(openTime.getTime() + 59_999).toISOString(),
+      symbol,
+      exchange: 'binance',
+      interval,
+      open: price,
+      high: price,
+      low: price,
+      close: price,
+      volume: '1.00000000',
+      quote_volume: price,
+      trades_count: 5,
+      is_closed: false,
+    })
+
+  // The fixtures price BTCUSDT around 50,000 (fixtures.ts); this is the
+  // shape of a stale frame from another pair.
+  sendKline?.(klineFrame('ETHUSDT', '1m', '2500.00000000'))
+  sendKline?.(klineFrame('BTCUSDT', '5m', '999999.00000000'))
+  await page.waitForTimeout(400)
+
+  // The status bar mirrors the chart's latest price, so a foreign frame
+  // that got through would show up here.
+  await expect(page.getByText('2500.00', { exact: false })).toHaveCount(0)
+  await expect(page.getByText('999999.00', { exact: false })).toHaveCount(0)
+
+  // ...while a frame for the displayed pair still gets applied.
+  sendKline?.(klineFrame('BTCUSDT', '1m', '50123.00000000'))
+  await expect(page.getByText('50123.00', { exact: false }).first()).toBeVisible()
+})

@@ -298,9 +298,19 @@ export function PriceChart(props: PriceChartProps) {
 
     const upColor = cssToken('--color-up')
     const downColor = cssToken('--color-down')
-    candleSeries.update(toCandlestickPoint(live))
-    volumeSeries.update(toVolumePoint(live, upColor, downColor))
-    previousLastOpenTime = live.openTime
+    try {
+      candleSeries.update(toCandlestickPoint(live))
+      volumeSeries.update(toVolumePoint(live, upColor, downColor))
+      previousLastOpenTime = live.openTime
+    } catch (error) {
+      // Lightweight Charts rejects a bad point by throwing, and this runs
+      // inside a reactive effect: an uncaught throw here propagates to the
+      // ErrorBoundary around the chart, which then shows its fallback
+      // until the page is reloaded — one malformed tick costing the whole
+      // panel. The historical series on screen is still valid, so drop the
+      // tick and keep the chart alive.
+      console.error('[price-chart] dropped a live update the chart rejected', error)
+    }
   })
 
   createEffect(() => {

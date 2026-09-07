@@ -50,10 +50,26 @@ export function useLiveStream(options: UseLiveStreamOptions): LiveStream {
 
   function start() {
     handle?.close()
+    // Both buffers hold whatever the *previous* pair sent but the browser
+    // has not painted yet. Flushing that into the new pair's chart applies
+    // one pair's price to another's series — visibly a single candle far
+    // above or below everything else, with the price scale stretched to
+    // match. `stop()` drops the queued items along with the pending frame.
+    tradeBuffer.stop()
+    klineBuffer.stop()
     setLiveKline(null)
     handle = connectLiveSocket(options.symbol(), options.interval(), {
-      onTrade: (t) => tradeBuffer.push(t),
-      onKline: (row) => klineBuffer.push(row),
+      // Second line of defence, for a frame that arrives after the switch
+      // on a socket that has not finished closing: only take what matches
+      // what is on screen right now.
+      onTrade: (frameSymbol, t) => {
+        if (frameSymbol !== options.symbol()) return
+        tradeBuffer.push(t)
+      },
+      onKline: (frameSymbol, frameInterval, row) => {
+        if (frameSymbol !== options.symbol() || frameInterval !== options.interval()) return
+        klineBuffer.push(row)
+      },
       onStateChange: setConnectionState,
     })
   }

@@ -17,6 +17,7 @@ describe('parseLiveMessage', () => {
     const parsed = parseLiveMessage(REAL_TRADE_FRAME)
     expect(parsed).toEqual({
       kind: 'trade',
+      symbol: 'BTCUSDT',
       trade: {
         ts: Date.parse('2026-09-07T07:58:56.971Z'),
         tradeId: 6660754743,
@@ -31,6 +32,8 @@ describe('parseLiveMessage', () => {
     const parsed = parseLiveMessage(REAL_KLINE_FRAME)
     expect(parsed).toEqual({
       kind: 'kline',
+      symbol: 'BTCUSDT',
+      interval: '1m',
       row: {
         openTime: Date.parse('2026-09-07T07:58:00Z'),
         closeTime: Date.parse('2026-09-07T07:58:59.999Z'),
@@ -56,5 +59,26 @@ describe('parseLiveMessage', () => {
 
   it('returns null for an unrecognized type rather than throwing', () => {
     expect(parseLiveMessage('{"type":"something_future"}')).toBeNull()
+  })
+
+  // Lightweight Charts throws on a non-finite value ("Assertion failed:
+  // ... value=NaN"), and it throws from inside the effect that applies the
+  // tick — taking the whole chart panel down until the page is reloaded.
+  // A frame that cannot produce real numbers must be dropped here instead.
+  it('drops a frame with an unparseable number instead of yielding NaN', () => {
+    const broken = REAL_KLINE_FRAME.replace('"close":"79399.99000000"', '"close":"n/a"')
+    expect(parseLiveMessage(broken)).toBeNull()
+  })
+
+  it('drops a frame missing a numeric field entirely', () => {
+    const broken = REAL_TRADE_FRAME.replace('"price":"79400.00000000",', '')
+    expect(parseLiveMessage(broken)).toBeNull()
+  })
+
+  // The consumer filters by these before applying anything to the chart:
+  // a frame from the pair being switched away from must be identifiable.
+  it('reports which symbol and interval a frame belongs to', () => {
+    const parsed = parseLiveMessage(REAL_KLINE_FRAME)
+    expect(parsed).toMatchObject({ symbol: 'BTCUSDT', interval: '1m' })
   })
 })
