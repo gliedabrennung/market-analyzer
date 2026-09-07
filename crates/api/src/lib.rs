@@ -45,6 +45,7 @@ pub fn build_app(
     limits: ApiLimits,
     cors_origin: &str,
 ) -> Result<Router, ApiError> {
+    let allowed_origin = cors_origin.to_string();
     let cors_origin: HeaderValue = cors_origin
         .parse()
         .map_err(|_| ApiError::Internal(format!("invalid CORS origin '{cors_origin}'")))?;
@@ -57,6 +58,8 @@ pub fn build_app(
         metrics,
         start_time: Instant::now(),
         limits,
+        ws_slots: Arc::new(tokio::sync::Semaphore::new(limits.max_ws_connections)),
+        cors_origin: allowed_origin,
     });
 
     Ok(Router::new()

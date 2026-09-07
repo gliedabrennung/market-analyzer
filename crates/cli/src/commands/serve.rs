@@ -25,6 +25,7 @@ pub async fn run(args: ServeArgs, config: &AppConfig) -> Result<()> {
         default_pagination_limit: 1000,
         max_pagination_limit: 10_000,
         max_correlation_symbols: 10,
+        max_ws_connections: config.api_max_ws_connections.max(1),
     };
 
     let app = build_app(pool, exchange, limits, &config.api_cors_origin)

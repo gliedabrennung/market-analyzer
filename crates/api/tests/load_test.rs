@@ -38,6 +38,7 @@ async fn sustains_100_rps_on_ohlcv_without_growing_errors() {
         default_pagination_limit: 1000,
         max_pagination_limit: 10_000,
         max_correlation_symbols: 10,
+        max_ws_connections: 64,
     };
     let app = build_app(pool, exchange, limits, "http://localhost:5173").expect("building app");
 

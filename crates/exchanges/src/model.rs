@@ -39,10 +39,16 @@ pub fn parse_kline_row(
     let volume = rescale_checked(dec_str(&row[5])?, MONEY_SCALE)?;
     let close_time = ts_millis(&row[6])?;
     let quote_volume = rescale_checked(dec_str(&row[7])?, MONEY_SCALE)?;
-    let trades_count = row[8]
+    let raw_trades_count = row[8]
         .as_i64()
-        .ok_or_else(|| ExchangeError::Parse("trades_count is not an integer".to_string()))?
-        as i32;
+        .ok_or_else(|| ExchangeError::Parse("trades_count is not an integer".to_string()))?;
+    // `as i32` would wrap silently (a count past i32::MAX turning negative
+    // and being written to Parquet as such); refuse the row instead.
+    let trades_count = i32::try_from(raw_trades_count).map_err(|_| {
+        ExchangeError::Parse(format!(
+            "trades_count {raw_trades_count} does not fit in i32"
+        ))
+    })?;
     let taker_buy_base = Some(rescale_checked(dec_str(&row[9])?, MONEY_SCALE)?);
 
     Ok(Kline {

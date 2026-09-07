@@ -190,10 +190,22 @@ impl BinanceSpot {
             for r in rows {
                 out.push(r.into_trade(symbol, EXCHANGE_ID)?);
             }
-            cursor = last_ts + 1;
             if (page_len as u32) < REST_PAGE_LIMIT {
                 break;
             }
+            // The cursor is derived from data the remote side controls, so
+            // a response whose last timestamp doesn't move it forward would
+            // otherwise re-request the same window forever, accumulating
+            // the same rows in memory each time.
+            let next_cursor = last_ts.saturating_add(1);
+            if next_cursor <= cursor {
+                tracing::warn!(
+                    symbol = %symbol, cursor, last_ts,
+                    "aggTrades page did not advance the time cursor, stopping pagination"
+                );
+                break;
+            }
+            cursor = next_cursor;
         }
         Ok(out)
     }
@@ -259,11 +271,22 @@ impl ExchangeSource for BinanceSpot {
             if page_len == 0 {
                 break;
             }
-            cursor = page[page_len - 1].open_time.timestamp_millis() + 1;
+            let last_open_ms = page[page_len - 1].open_time.timestamp_millis();
             out.extend(page);
             if (page_len as u32) < REST_PAGE_LIMIT {
                 break;
             }
+            // Same guard as `agg_trades`: never let the remote response
+            // decide whether this loop terminates.
+            let next_cursor = last_open_ms.saturating_add(1);
+            if next_cursor <= cursor {
+                tracing::warn!(
+                    symbol = %symbol, cursor, last_open_ms,
+                    "klines page did not advance the time cursor, stopping pagination"
+                );
+                break;
+            }
+            cursor = next_cursor;
         }
         Ok(out)
     }

@@ -59,16 +59,26 @@ impl ApiError {
     }
 }
 
+/// What a `500` says to the client. The underlying error text is a raw
+/// DuckDB/storage message: absolute paths of the data directory, the SQL
+/// that failed, sometimes schema details. That belongs in the server log,
+/// not in a response any unauthenticated caller can read — the client can
+/// do nothing with it either way.
+const INTERNAL_MESSAGE: &str = "internal error";
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = self.status();
-        if status == StatusCode::INTERNAL_SERVER_ERROR {
+        let message = if status == StatusCode::INTERNAL_SERVER_ERROR {
             tracing::error!(error = %self, "internal error");
-        }
+            INTERNAL_MESSAGE.to_string()
+        } else {
+            self.to_string()
+        };
         let body = Json(json!({
             "error": {
                 "code": self.code(),
-                "message": self.to_string(),
+                "message": message,
                 "details": self.details(),
             }
         }));
@@ -109,5 +119,46 @@ impl From<ma_storage::StorageError> for ApiError {
 impl From<duckdb::Error> for ApiError {
     fn from(e: duckdb::Error) -> Self {
         ApiError::Internal(e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::to_bytes;
+
+    async fn body_json(error: ApiError) -> serde_json::Value {
+        let response = error.into_response();
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn internal_errors_do_not_leak_their_detail_to_the_client() {
+        let secret = "IO Error: No files found that match the pattern \
+                      \"/srv/market-analyzer/data/klines/**/*.parquet\"";
+        let json = body_json(ApiError::Internal(secret.to_string())).await;
+
+        assert_eq!(json["error"]["code"], "internal_error");
+        assert_eq!(json["error"]["message"], "internal error");
+        assert!(
+            !json.to_string().contains("/srv/market-analyzer"),
+            "server-side paths must never reach the response body"
+        );
+    }
+
+    #[tokio::test]
+    async fn client_errors_keep_their_actionable_message() {
+        let json = body_json(ApiError::bad_request(
+            "window",
+            "window must be between 1 and 100000",
+        ))
+        .await;
+        assert_eq!(json["error"]["code"], "invalid_parameter");
+        assert_eq!(
+            json["error"]["message"],
+            "window must be between 1 and 100000"
+        );
+        assert_eq!(json["error"]["details"]["parameter"], "window");
     }
 }

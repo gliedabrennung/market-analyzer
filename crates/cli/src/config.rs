@@ -23,6 +23,11 @@ pub struct AppConfig {
     /// Defaults to the Vite dev server; set to the deployed frontend origin
     /// in production.
     pub api_cors_origin: String,
+    /// Ceiling on simultaneously connected `/stream/{symbol}` clients. Each
+    /// one costs a separate upstream exchange connection, so this is what
+    /// keeps a burst of cheap client requests from turning into an
+    /// unbounded number of outbound sockets.
+    pub api_max_ws_connections: usize,
 }
 
 impl Default for AppConfig {
@@ -35,6 +40,7 @@ impl Default for AppConfig {
             api_max_date_range_days: 366,
             api_db_pool_size: 4,
             api_cors_origin: "http://localhost:5173".to_string(),
+            api_max_ws_connections: 64,
         }
     }
 }
@@ -77,6 +83,11 @@ impl AppConfig {
         }
         if let Ok(v) = std::env::var("MA_API_CORS_ORIGIN") {
             cfg.api_cors_origin = v;
+        }
+        if let Ok(v) = std::env::var("MA_API_MAX_WS_CONNECTIONS") {
+            cfg.api_max_ws_connections = v
+                .parse()
+                .context("MA_API_MAX_WS_CONNECTIONS must be a positive integer")?;
         }
 
         Ok(cfg)

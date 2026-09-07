@@ -71,6 +71,16 @@ pub async fn run(args: BackfillArgs, config: &AppConfig) -> Result<()> {
             .write_klines(&klines)
             .with_context(|| format!("writing klines for {symbol}"))?;
 
+        if written > 0 {
+            // On a fresh data directory there were no Parquet files when
+            // `open_writable` ran, so the `klines` view could not be created
+            // then — and `serve` (read-only) can never create it. Without
+            // this, the first backfill's data stays invisible to the API
+            // until some unrelated later write reopens the store.
+            meta.refresh_views(&config.data_dir)
+                .context("refreshing meta.duckdb views over the new Parquet files")?;
+        }
+
         if let Some(max_open) = klines.iter().map(|k| k.open_time).max() {
             meta.upsert_collector_state(
                 exchange.id(),

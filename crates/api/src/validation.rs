@@ -160,6 +160,7 @@ mod tests {
             default_pagination_limit: 1000,
             max_pagination_limit: 10_000,
             max_correlation_symbols: 10,
+            max_ws_connections: 64,
         }
     }
 

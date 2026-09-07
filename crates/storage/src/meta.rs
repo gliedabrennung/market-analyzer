@@ -93,7 +93,15 @@ impl MetaStore {
     /// project happened to share, and every `/ohlcv` call failed with "No
     /// files found" against a `data/klines/...` glob that was never wrong
     /// until the CWD actually differed).
-    fn refresh_views(&self, data_root: &Path) -> Result<(), StorageError> {
+    ///
+    /// Public because opening the store is *not* the only moment views can
+    /// become creatable: on a fresh data directory the very first
+    /// `backfill`/`stream` run opens the store before any Parquet file
+    /// exists, so the open-time attempt necessarily skips both views, and
+    /// the files it then writes stay invisible to `serve` until some later
+    /// writable open happens to run this again. Writers call it after a
+    /// successful write for that reason.
+    pub fn refresh_views(&self, data_root: &Path) -> Result<(), StorageError> {
         let data_root = std::path::absolute(data_root)?;
         self.try_create_glob_view("klines", &data_root.join("klines"))?;
         self.try_create_glob_view("trades", &data_root.join("trades"))?;
@@ -331,6 +339,41 @@ mod tests {
             .query_row("SELECT count(*) FROM klines", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 2);
+    }
+
+    /// The first write on a fresh data directory always happens *after* the
+    /// store was opened (nothing to glob at open time), and a read-only
+    /// `serve` can never create the view itself — so a writer must be able
+    /// to publish its own freshly-written files without reopening.
+    #[test]
+    fn refresh_views_publishes_files_written_after_open() {
+        let dir = tempdir().unwrap();
+        let data_root = dir.path().join("data");
+        let meta_path = dir.path().join("meta.duckdb");
+
+        let store = MetaStore::open_writable(&meta_path, &data_root).unwrap();
+        assert!(store
+            .connection()
+            .query_row("SELECT count(*) FROM klines", [], |r| r.get::<_, i64>(0))
+            .is_err());
+
+        let part_dir = data_root.join("klines/symbol=BTCUSDT/dt=2026-08-01");
+        std::fs::create_dir_all(&part_dir).unwrap();
+        Connection::open_in_memory()
+            .unwrap()
+            .execute_batch(&format!(
+                "COPY (SELECT 1 AS x) TO '{}' (FORMAT PARQUET)",
+                sql_quote_path(&part_dir.join("part-0000.parquet"))
+            ))
+            .unwrap();
+
+        store.refresh_views(&data_root).unwrap();
+
+        let count: i64 = store
+            .connection()
+            .query_row("SELECT count(*) FROM klines", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
     }
 
     #[test]

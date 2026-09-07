@@ -115,6 +115,15 @@ pub fn compact_partition(
 /// crash. Run automatically at the start of every [`compact_partition`]
 /// call, so a dangling manifest is always resolved before any new
 /// compaction computes a "before" checksum over the same directory.
+///
+/// A manifest alone is *not* proof that the merge finished: it is written
+/// before the `COPY`, so a crash during the copy (or before its rename)
+/// leaves a manifest whose listed files are still the only copy of the
+/// partition's rows. The merged file's presence under its final name is
+/// the real completion marker — that name only ever appears via the atomic
+/// rename after the checksum matched. So each manifest is honored only
+/// when its merged file exists; otherwise the compaction never happened
+/// and only the manifest is cleared.
 fn recover_incomplete_compaction(dir: &Path) -> Result<(), StorageError> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -123,16 +132,29 @@ fn recover_incomplete_compaction(dir: &Path) -> Result<(), StorageError> {
     };
     for entry in entries {
         let path = entry?.path();
-        let is_manifest = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.ends_with(MANIFEST_SUFFIX));
-        if is_manifest {
+        let Some(merged) = merged_file_for_manifest(&path) else {
+            continue;
+        };
+        if merged.exists() {
             tracing::info!(path = %path.display(), "resuming compaction cleanup left incomplete by a previous run");
             delete_manifested_files(&path)?;
+        } else {
+            tracing::warn!(
+                path = %path.display(),
+                merged = %merged.display(),
+                "compaction was interrupted before its merged file landed; keeping the original files and discarding the manifest"
+            );
+            fs::remove_file(&path)?;
         }
     }
     Ok(())
+}
+
+/// `part-0003.compacted-manifest` -> `part-0003.parquet`; `None` for any
+/// path that isn't a manifest.
+fn merged_file_for_manifest(path: &Path) -> Option<PathBuf> {
+    let stem = path.file_name()?.to_str()?.strip_suffix(MANIFEST_SUFFIX)?;
+    Some(path.with_file_name(format!("{stem}.parquet")))
 }
 
 /// Durably records, *before* the merged file is written, exactly which
@@ -315,6 +337,44 @@ mod tests {
 
         assert!(!manifest_path.exists());
         assert_eq!(list_part_files(&dir).unwrap(), vec![final_path]);
+    }
+
+    /// The other crash window: manifest already durable, but the merge
+    /// itself never finished (no merged file under its final name). The
+    /// manifest names files that are still the *only* copy of this
+    /// partition's rows — deleting them here would destroy the partition
+    /// outright, since the interrupted merge left nothing to replace them
+    /// with.
+    #[test]
+    fn crash_before_merge_lands_keeps_the_originals() {
+        let tmp = tempdir().unwrap();
+        let store = crate::KlineStore::new(tmp.path()).unwrap();
+        let base = Utc.with_ymd_and_hms(2026, 8, 1, 0, 0, 0).unwrap();
+        for minute in 0..3i64 {
+            store.write_klines(&[kline_at(base, minute)]).unwrap();
+        }
+        let dir = crate::paths::partition_dir(
+            tmp.path(),
+            "klines",
+            "BTCUSDT",
+            chrono::NaiveDate::from_ymd_opt(2026, 8, 1).unwrap(),
+        );
+        let existing = list_part_files(&dir).unwrap();
+        assert_eq!(existing.len(), 3);
+
+        // Crashed between `write_manifest` and the `COPY`'s rename: the
+        // manifest is on disk, `part-0003.parquet` never appeared.
+        let manifest_path = write_manifest(&dir, 3, &existing).unwrap();
+        assert!(!dir.join("part-0003.parquet").exists());
+
+        let result = compact_partition(&dir, "open_time").unwrap();
+
+        assert_eq!(
+            result.rows, 3,
+            "no row may be lost to an interrupted compaction"
+        );
+        assert!(!manifest_path.exists(), "stale manifest must be cleared");
+        assert_eq!(list_part_files(&dir).unwrap().len(), 1);
     }
 
     #[test]

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -65,17 +66,17 @@ pub async fn run(args: StreamArgs, config: &AppConfig) -> Result<()> {
 
             _ = &mut shutdown => {
                 tracing::info!("shutdown signal received, flushing buffers (FR-6.4)");
-                flush_klines(&kline_store, &meta, exchange.id(), interval, &mut kline_buf)?;
-                flush_trades(&trade_store, &meta, exchange.id(), &mut trade_buf)?;
+                flush_klines(&kline_store, &meta, &config.data_dir, exchange.id(), interval, &mut kline_buf)?;
+                flush_trades(&trade_store, &meta, &config.data_dir, exchange.id(), &mut trade_buf)?;
                 break;
             }
 
             _ = tick.tick() => {
                 if kline_buf.should_flush() {
-                    flush_klines(&kline_store, &meta, exchange.id(), interval, &mut kline_buf)?;
+                    flush_klines(&kline_store, &meta, &config.data_dir, exchange.id(), interval, &mut kline_buf)?;
                 }
                 if trade_buf.should_flush() {
-                    flush_trades(&trade_store, &meta, exchange.id(), &mut trade_buf)?;
+                    flush_trades(&trade_store, &meta, &config.data_dir, exchange.id(), &mut trade_buf)?;
                 }
             }
 
@@ -92,13 +93,13 @@ pub async fn run(args: StreamArgs, config: &AppConfig) -> Result<()> {
                     Some(Ok(MarketEvent::Kline(k))) => {
                         kline_buf.push(k);
                         if kline_buf.should_flush() {
-                            flush_klines(&kline_store, &meta, exchange.id(), interval, &mut kline_buf)?;
+                            flush_klines(&kline_store, &meta, &config.data_dir, exchange.id(), interval, &mut kline_buf)?;
                         }
                     }
                     Some(Ok(MarketEvent::Trade(t))) => {
                         trade_buf.push(t);
                         if trade_buf.should_flush() {
-                            flush_trades(&trade_store, &meta, exchange.id(), &mut trade_buf)?;
+                            flush_trades(&trade_store, &meta, &config.data_dir, exchange.id(), &mut trade_buf)?;
                         }
                     }
                     // No FR/data-model table stores order-book depth; the
@@ -108,8 +109,8 @@ pub async fn run(args: StreamArgs, config: &AppConfig) -> Result<()> {
                     Some(Err(e)) => tracing::warn!(error = %e, "stream event error"),
                     None => {
                         tracing::warn!("event stream ended unexpectedly, shutting down");
-                        flush_klines(&kline_store, &meta, exchange.id(), interval, &mut kline_buf)?;
-                        flush_trades(&trade_store, &meta, exchange.id(), &mut trade_buf)?;
+                        flush_klines(&kline_store, &meta, &config.data_dir, exchange.id(), interval, &mut kline_buf)?;
+                        flush_trades(&trade_store, &meta, &config.data_dir, exchange.id(), &mut trade_buf)?;
                         break;
                     }
                 }
@@ -123,6 +124,7 @@ pub async fn run(args: StreamArgs, config: &AppConfig) -> Result<()> {
 fn flush_klines(
     store: &KlineStore,
     meta: &MetaStore,
+    data_dir: &Path,
     exchange_id: &str,
     interval: Interval,
     buf: &mut BatchBuffer<Kline>,
@@ -133,6 +135,14 @@ fn flush_klines(
     let batch = buf.drain();
     let fetched = batch.len();
     let written = store.write_klines(&batch).context("writing kline batch")?;
+    if written > 0 {
+        // See `backfill`: on a fresh data directory the view could not be
+        // created when the store was opened, and only a writer can create
+        // it — so a long-running `stream` is otherwise the one process that
+        // fills the directory while leaving the API unable to see any of it.
+        meta.refresh_views(data_dir)
+            .context("refreshing meta.duckdb views over the new Parquet files")?;
+    }
 
     let now = Utc::now();
     for (symbol, max_ts) in
@@ -155,6 +165,7 @@ fn flush_klines(
 fn flush_trades(
     store: &TradeStore,
     meta: &MetaStore,
+    data_dir: &Path,
     exchange_id: &str,
     buf: &mut BatchBuffer<Trade>,
 ) -> Result<()> {
@@ -164,6 +175,10 @@ fn flush_trades(
     let batch = buf.drain();
     let fetched = batch.len();
     let written = store.write_trades(&batch).context("writing trade batch")?;
+    if written > 0 {
+        meta.refresh_views(data_dir)
+            .context("refreshing meta.duckdb views over the new Parquet files")?;
+    }
 
     let now = Utc::now();
     for (symbol, max_ts) in
