@@ -6,9 +6,12 @@ import {
   HistogramSeries,
   LineSeries,
   createChart,
+  createSeriesMarkers,
   type IChartApi,
   type ISeriesApi,
+  type ISeriesMarkersPluginApi,
   type LogicalRange,
+  type Time,
   type UTCTimestamp,
 } from 'lightweight-charts'
 import type { OhlcvRow, VwapPoint } from '../api/types'
@@ -40,6 +43,13 @@ export interface PriceChartProps {
    * parent's job (it knows when its own fetch resolves), not this
    * component's. */
   onLoadEarlier?: () => void
+  /** FR-5.3: set (with a fresh `nonce` each time — including re-clicking
+   * the same row, which wouldn't otherwise change `time`) to center the
+   * view on `time` (epoch ms) and drop a highlight marker on that bar. */
+  jumpTarget?: { time: number; nonce: number } | null
+  /** `r` hotkey (FR-8.5): bump this to reset the view to fit all loaded
+   * data. Only the value *changing* matters, not what it is. */
+  resetZoomNonce?: number
 }
 
 function toCandlestickPoint(row: OhlcvRow) {
@@ -88,6 +98,7 @@ export function PriceChart(props: PriceChartProps) {
   let volumeSeries: ISeriesApi<'Histogram'> | undefined
   let vwapSeries: ISeriesApi<'Line'> | undefined
   let maSeries: ISeriesApi<'Line'> | undefined
+  let markers: ISeriesMarkersPluginApi<Time> | undefined
   let applyingExternalRange = false
   let previousRowCount = 0
   let previousLastOpenTime: number | undefined
@@ -127,6 +138,8 @@ export function PriceChart(props: PriceChartProps) {
       wickUpColor: upColor,
       wickDownColor: downColor,
     })
+
+    markers = createSeriesMarkers(candleSeries, [])
 
     volumeSeries = chart.addSeries(HistogramSeries, {
       priceFormat: { type: 'volume' },
@@ -286,6 +299,46 @@ export function PriceChart(props: PriceChartProps) {
       .map(toVwapPoint)
       .filter((p): p is { time: UTCTimestamp; value: number } => p.value !== null)
     vwapSeries.setData(points)
+  })
+
+  // FR-5.3: jump to (and highlight) a specific bar, e.g. from clicking an
+  // anomalies-table row. Keeps the current zoom span, just re-centers it
+  // — a deliberate user action, so (unlike the historical-load path)
+  // this *does* publish to `./sync`: the other panels following along
+  // here is the same "one view, many panels" idea FR-4.2 already covers
+  // for drag/wheel, just triggered a different way.
+  createEffect(() => {
+    const target = props.jumpTarget
+    if (target == null || chart === undefined || markers === undefined) return
+
+    const timeSec = Math.floor(target.time / 1000) as UTCTimestamp
+    markers.setMarkers([
+      { time: timeSec, position: 'aboveBar', shape: 'arrowDown', color: cssToken('--color-down'), size: 1.5 },
+    ])
+
+    const currentRange = chart.timeScale().getVisibleRange()
+    const span = currentRange !== null ? (currentRange.to as number) - (currentRange.from as number) : 3600
+    const half = span / 2
+    const newRange = {
+      from: ((timeSec as number) - half) as UTCTimestamp,
+      to: ((timeSec as number) + half) as UTCTimestamp,
+    }
+    applyingExternalRange = true
+    chart.timeScale().setVisibleRange(newRange)
+    applyingExternalRange = false
+    publishVisibleRange(chartId, { from: newRange.from as number, to: newRange.to as number })
+
+    // Lightweight Charts renders everything (candles, the marker just
+    // set above) to a single <canvas> — nothing about a jump having
+    // actually applied is otherwise observable from outside this
+    // component. This attribute exists for that: e2e coverage of FR-5.3
+    // asserts on it rather than reaching into chart internals.
+    container?.setAttribute('data-last-jump-nonce', String(target.nonce))
+  })
+
+  createEffect(() => {
+    if (props.resetZoomNonce === undefined || chart === undefined) return
+    chart.timeScale().fitContent()
   })
 
   return <div ref={container} data-testid="price-chart" class="h-full w-full" />

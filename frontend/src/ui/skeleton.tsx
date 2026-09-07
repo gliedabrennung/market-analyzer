@@ -7,3 +7,14 @@ export function ChartSkeleton() {
     </div>
   )
 }
+
+/** Same idea as `ChartSkeleton`, sized for a smaller card-style panel —
+ * used for `lazy()`-loaded panels (app.tsx's `<Suspense>`), where there's
+ * a real network gap (the chunk itself) on top of the data fetch. */
+export function PanelSkeleton() {
+  return (
+    <div class="h-40 animate-pulse rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
+      <div class="h-full w-full rounded-md bg-[var(--color-surface-2)]" />
+    </div>
+  )
+}

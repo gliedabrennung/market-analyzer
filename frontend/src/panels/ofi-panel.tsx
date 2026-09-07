@@ -43,3 +43,7 @@ export function OfiPanel(props: OfiPanelProps) {
     />
   )
 }
+
+// `solid-js`'s `lazy()` (app.tsx: off by default, state/settings.ts) needs
+// a default export.
+export default OfiPanel

@@ -1,5 +1,5 @@
 import { tableFromIPC, type Table } from 'apache-arrow'
-import type { OfiBucket, OhlcvRow, VolatilityPoint, VolumeAnomaly, VwapPoint } from './types'
+import type { CorrelationPair, OfiBucket, OhlcvRow, VolatilityPoint, VolumeAnomaly, VwapPoint } from './types'
 
 /** Reads a named column off `table`, or throws — a missing column means the
  * backend's schema and this parser have drifted, which should fail loudly
@@ -106,6 +106,25 @@ export function parseAnomaliesArrow(bytes: Uint8Array): VolumeAnomaly[] {
       openTime: Number(openTime.get(i)),
       volume: Number.parseFloat(volume.get(i) as string),
       zScore: Number(zScore.get(i)),
+    }
+  }
+  return rows
+}
+
+/** Parses a `/analytics/correlation` Arrow IPC stream (FR-3.6/FR-6.1). */
+export function parseCorrelationArrow(bytes: Uint8Array): CorrelationPair[] {
+  const table = tableFromIPC(bytes)
+  const symbolA = column(table, 'symbol_a')
+  const symbolB = column(table, 'symbol_b')
+  const correlation = column(table, 'correlation')
+
+  const rows: CorrelationPair[] = new Array(table.numRows)
+  for (let i = 0; i < table.numRows; i++) {
+    const value = correlation.get(i)
+    rows[i] = {
+      symbolA: symbolA.get(i) as string,
+      symbolB: symbolB.get(i) as string,
+      correlation: value === null ? null : Number(value),
     }
   }
   return rows

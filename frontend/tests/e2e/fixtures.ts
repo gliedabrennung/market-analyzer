@@ -1,4 +1,13 @@
-import { Bool, Int32, Table, TimestampMillisecond, tableToIPC, Utf8, vectorFromArray } from 'apache-arrow'
+import {
+  Bool,
+  Float64,
+  Int32,
+  Table,
+  TimestampMillisecond,
+  tableToIPC,
+  Utf8,
+  vectorFromArray,
+} from 'apache-arrow'
 
 export interface FixtureCandle {
   openTime: number
@@ -55,6 +64,32 @@ export function buildOhlcvArrowIpc(candles: FixtureCandle[]): Uint8Array {
     is_closed: vectorFromArray(
       candles.map(() => true),
       new Bool(),
+    ),
+  })
+  return tableToIPC(table, 'stream')
+}
+
+export interface FixtureAnomaly {
+  openTime: number
+  volume: string
+  zScore: number
+}
+
+/** Same reasoning as `buildOhlcvArrowIpc` — matches
+ * `ma_api::arrow_ipc::ToRecordBatch for VolumeAnomaly` byte-for-byte. */
+export function buildAnomaliesArrowIpc(anomalies: FixtureAnomaly[]): Uint8Array {
+  const table = new Table({
+    open_time: vectorFromArray(
+      anomalies.map((a) => a.openTime),
+      new TimestampMillisecond('UTC'),
+    ),
+    volume: vectorFromArray(
+      anomalies.map((a) => a.volume),
+      new Utf8(),
+    ),
+    z_score: vectorFromArray(
+      anomalies.map((a) => a.zScore),
+      new Float64(),
     ),
   })
   return tableToIPC(table, 'stream')

@@ -120,3 +120,11 @@ export function TradeTape(props: TradeTapeProps) {
     </div>
   )
 }
+
+// `solid-js`'s `lazy()` (app.tsx) needs a default export. Lazy despite
+// being the default-shown sidebar tab: it starts empty regardless (no
+// history endpoint for trades, only the live feed), so a brief chunk-load
+// delay here is faster than the wait for the first real trade anyway —
+// worth it to keep `@tanstack/solid-virtual` out of the critical bundle
+// (NFR-1.1's initial-chunk budget).
+export default TradeTape

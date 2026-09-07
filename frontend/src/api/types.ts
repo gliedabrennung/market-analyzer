@@ -75,6 +75,15 @@ export interface OfiBucket {
   ofi: number
 }
 
+/** `GET /analytics/correlation` (FR-3.6/FR-6.1): one symbol pair's
+ * correlation coefficient. `null` when the pair never has two
+ * overlapping non-null returns. */
+export interface CorrelationPair {
+  symbolA: string
+  symbolB: string
+  correlation: number | null
+}
+
 export type Interval = '1m' | '5m' | '15m' | '1h' | '4h' | '1d'
 
 export const INTERVALS: readonly Interval[] = ['1m', '5m', '15m', '1h', '4h', '1d']

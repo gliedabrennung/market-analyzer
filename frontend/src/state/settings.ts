@@ -8,6 +8,7 @@ export interface IndicatorSettings {
   volatility: boolean
   ofi: boolean
   anomalies: boolean
+  correlation: boolean
 }
 
 const STORAGE_KEY = 'market-analyzer:indicators'
@@ -21,6 +22,9 @@ const DEFAULTS: IndicatorSettings = {
   // visit doesn't fetch it against symbols with little trade history.
   ofi: false,
   anomalies: true,
+  // Multi-symbol, O(n²) on the backend (capped at 10 symbols there too)
+  // — off by default so a fresh visit doesn't fire it unasked.
+  correlation: false,
 }
 
 function loadInitial(): IndicatorSettings {

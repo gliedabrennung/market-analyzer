@@ -11,6 +11,7 @@ import {
 } from 'apache-arrow'
 import {
   parseAnomaliesArrow,
+  parseCorrelationArrow,
   parseOfiArrow,
   parseOhlcvArrow,
   parseVolatilityArrow,
@@ -146,5 +147,20 @@ describe('parseOfiArrow', () => {
     })
     const rows = parseOfiArrow(tableToIPC(table, 'stream'))
     expect(rows).toEqual([{ bucket: 1_700_000_000_000, buyVolume: 5, sellVolume: 1, ofi: 4 / 6 }])
+  })
+})
+
+describe('parseCorrelationArrow', () => {
+  it('parses a null correlation (no overlapping returns) as null', () => {
+    const table = new Table({
+      symbol_a: vectorFromArray(['BTCUSDT', 'BTCUSDT'], new Utf8()),
+      symbol_b: vectorFromArray(['ETHUSDT', 'SOLUSDT'], new Utf8()),
+      correlation: vectorFromArray([0.87, null], new Float64()),
+    })
+    const rows = parseCorrelationArrow(tableToIPC(table, 'stream'))
+    expect(rows).toEqual([
+      { symbolA: 'BTCUSDT', symbolB: 'ETHUSDT', correlation: 0.87 },
+      { symbolA: 'BTCUSDT', symbolB: 'SOLUSDT', correlation: null },
+    ])
   })
 })

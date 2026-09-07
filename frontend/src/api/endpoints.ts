@@ -1,5 +1,6 @@
 import {
   parseAnomaliesArrow,
+  parseCorrelationArrow,
   parseOfiArrow,
   parseOhlcvArrow,
   parseVolatilityArrow,
@@ -8,6 +9,7 @@ import {
 import { fetchRows } from './client'
 import type { FetchRowsOptions } from './client'
 import type {
+  CorrelationPair,
   Interval,
   OfiBucket,
   OhlcvRow,
@@ -170,6 +172,24 @@ export function fetchOfi(params: OfiParams, options?: FetchRowsOptions): Promise
     const path = `${API_BASE_URL}/analytics/${encodeURIComponent(params.symbol)}/ofi?${query}`
     return fetchRows(path, parseOfiArrow, options)
   })
+}
+
+export interface CorrelationParams {
+  symbols: string[]
+  interval: Interval
+}
+
+/** `GET /analytics/correlation` (FR-3.6/FR-6.1). No `limit`/`offset` on
+ * the backend — it's capped server-side at
+ * `ApiLimits.max_correlation_symbols` (10) symbols, so at most C(10,2) =
+ * 45 rows ever come back; pagination would be pure overhead. */
+export function fetchCorrelation(
+  params: CorrelationParams,
+  options?: FetchRowsOptions,
+): Promise<CorrelationPair[]> {
+  const query = new URLSearchParams({ symbols: params.symbols.join(','), interval: params.interval })
+  const path = `${API_BASE_URL}/analytics/correlation?${query}`
+  return fetchRows(path, parseCorrelationArrow, options)
 }
 
 /** `GET /symbols` (FR-5.1) — JSON only, it's a small registry, not a
